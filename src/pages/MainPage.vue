@@ -308,9 +308,10 @@ onMounted(loadRoles)
 .date-tile { width: 52px; min-height: 60px; margin-right: 16px; border-radius: 12px; background: #edf3f0; color: rgb(var(--v-theme-primary)); display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .date-tile span { font-size: 11px; text-transform: uppercase; font-weight: 600; }
 .date-tile strong { font-size: 24px; line-height: 1.2; }
-.role-item :deep(.v-list-item__append) { grid-area: append; justify-self: start; flex-wrap: wrap; gap: 2px; margin-top: 6px; }
+.role-item :deep(.v-list-item__append) { grid-area: append; justify-self: end; justify-content: flex-end; flex-wrap: wrap; gap: 2px; margin-top: 6px; }
 .replacement-switch { flex: 0 0 auto; }
-.replacement-switch :deep(.v-label) { font-size: 12px; }
+.replacement-switch :deep(.v-selection-control) { flex-direction: column-reverse; align-items: center; }
+.replacement-switch :deep(.v-label) { width: calc(52px * var(--v-switch-scale, 1)); height: auto; justify-content: center; margin: 0 0 6px; padding: 0; font-family: inherit; font-size: 10px; font-weight: 500; letter-spacing: 0; line-height: 1.2; text-align: center; white-space: nowrap; }
 .role-date { font-size: 14px; font-weight: 700; white-space: normal; }
 .role-date::first-letter { text-transform: uppercase; }
 .role-person { margin-top: 5px; font-size: 14px; line-height: 1.5; white-space: normal; opacity: .8; -webkit-line-clamp: unset; overflow: visible; overflow-wrap: anywhere; }
