@@ -23,7 +23,9 @@
             <h1 id="roles-heading" class="text-h5 font-weight-bold">{{ rolesHeading }}</h1>
             <p class="month-label text-body-2 text-medium-emphasis mt-1">{{ currentMonthYear || 'Calendario familiar' }}</p>
           </div>
-          <v-btn v-if="activeTab === 'actual' && user.rol_usuario === 'superadmin'" color="primary" variant="tonal" :disabled="loadingRoles || savingSwap" @click="reorganizeDialog = true">Reorganizar</v-btn>
+          <v-btn v-if="activeTab === 'actual' && canCreateUsers" color="primary" variant="tonal" :disabled="loadingRoles || savingSwap || !!currentWeek.lock" @click="reorganizeDialog = true">Reorganizar</v-btn>
+          <v-btn v-if="activeTab === 'actual' && canCreateUsers && !currentWeek.lock" color="primary" :disabled="loadingRoles || savingSwap" @click="lockDialog = true">Cerrar semana</v-btn>
+          <p v-if="activeTab === 'actual' && currentWeek.lock" class="text-body-2" role="status">Semana cerrada · {{ currentWeek.lock.author }} · {{ new Date(currentWeek.lock.locked_at).toLocaleString('es-NI', { timeZone: 'America/Managua' }) }}</p>
           <v-chip color="primary" variant="tonal" size="small">{{ selectedRoles.length }} asignaciones</v-chip>
         </div>
         <v-tabs :model-value="activeTab" :disabled="loadingRoles || savingSwap" @update:model-value="changeWeekTab" color="primary" grow hide-slider height="56" class="week-tabs" aria-label="Seleccionar semana">

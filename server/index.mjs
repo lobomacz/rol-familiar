@@ -1,7 +1,8 @@
+import { lockWeek } from './week-locks.mjs'
 import { reorganizeWeek } from './reorganization.mjs'
 import { reassignDay } from './reassignments.mjs'
 import { changeUserRole } from './user-roles.mjs'
-import { listNotes, createNote, appendNote, completeNote, clearPendingNotes } from './notes.mjs'
+import { deleteNote, listNotes, createNote, appendNote, completeNote, clearPendingNotes } from './notes.mjs'
 import { genericPasswordCredentials } from './password-reset.mjs'
 import { isStrongPassword } from '../src/helpers/password-policy.js'
 import { createServer } from 'node:http'
@@ -106,6 +107,9 @@ const server = createServer(async (req, res) => {
     if (url.pathname === '/api/notes' && req.method === 'GET') return send(200, listNotes(db, session))
     if (url.pathname === '/api/notes' && req.method === 'POST') return send(201, createNote(db, session, await readBody(req)))
     if (url.pathname === '/api/notes/clear-pending' && req.method === 'POST') return send(200, clearPendingNotes(db, session))
+    const deleteMatch = url.pathname.match(/^\/api\/notes\/(\d+)$/)
+    if (deleteMatch && req.method === 'DELETE') return send(200, deleteNote(db, session, Number(deleteMatch[1])))
+    if (url.pathname === '/api/roles/lock' && req.method === 'POST') return send(200, lockWeek(db, session.id))
     const noteAction = url.pathname.match(/^\/api\/notes\/(\d+)\/(entries|complete)$/)
     if (noteAction && req.method === 'POST') {
       return send(200, noteAction[2] === 'entries'

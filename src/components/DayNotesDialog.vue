@@ -22,6 +22,15 @@ async function load() {
   } catch (err) { if (id === requestId) error.value = err.message }
   finally { if (id === requestId) loading.value = false }
 }
+async function removeNote(note) {
+  if (!note.canDelete || !window.confirm('¿Eliminar esta nota?')) return
+  saving.value = note.id; error.value = ''
+  try {
+    await request(`/api/notes/${note.id}`, { method: 'DELETE' })
+    emit('changed'); await load()
+  } catch (err) { error.value = err.message }
+  finally { saving.value = null }
+}
 async function complete(note) {
   if (saving.value !== null || !note.canComplete) return
   saving.value = note.id; error.value = ''
@@ -62,7 +71,8 @@ watch(() => [props.modelValue, props.date, props.noteId], ([open]) => {
               <small>{{ entry.author_name }} · {{ new Date(entry.created_at).toLocaleString('es-NI', { timeZone: 'America/Managua' }) }}</small>
             </div>
             <p v-if="note.completed_at" class="text-body-2">Completada</p>
-            <template v-else>
+            <v-btn v-if="note.canDelete" size="small" color="error" variant="text" :disabled="saving !== null || loading" @click="removeNote(note)">Eliminar nota</v-btn>
+            <template v-if="!note.completed_at">
               <p v-if="note.overdue" class="text-body-2 text-error mb-2">Nota vencida: requiere un administrador.</p>
               <v-btn v-if="note.canComplete" color="primary" size="small" :loading="saving === note.id" :disabled="saving !== null || loading" @click="complete(note)">{{ note.overdue ? 'Completar y limpiar aviso' : 'Completar' }}</v-btn>
               <p v-else-if="!note.overdue" class="text-body-2 text-medium-emphasis">Solo el usuario asignado o su sustituto puede completar esta nota.</p>

@@ -53,6 +53,15 @@ async function save() {
   } catch (err) { error.value = err.message }
   finally { saving.value = false }
 }
+async function removeNote(note) {
+  if (!note.canDelete || !window.confirm('¿Eliminar esta nota?')) return
+  saving.value = true; error.value = ''
+  try {
+    await request(`/api/notes/${note.id}`, { method: 'DELETE' })
+    emit('changed'); await load()
+  } catch (err) { error.value = err.message }
+  finally { saving.value = false }
+}
 async function complete(note) {
   saving.value = true; error.value = ''
   try {
@@ -106,7 +115,8 @@ onMounted(load)
           <div class="note-actions mt-3">
             <v-btn v-if="!note.completed_at" size="small" variant="tonal" :disabled="saving" @click="edit(note, false)">Agregar texto</v-btn>
             <v-btn v-if="note.completed_at" size="small" variant="tonal" :disabled="saving" @click="edit(note, true)">Derivar nota</v-btn>
-            <v-btn v-if="note.canComplete" size="small" color="primary" :disabled="saving" @click="complete(note)">{{ note.overdue ? 'Completar y limpiar aviso' : 'Completar' }}</v-btn>
+            <v-btn v-if="note.canDelete" size="small" color="error" variant="text" :disabled="saving || loading" @click="removeNote(note)">Eliminar nota</v-btn>
+              <v-btn v-if="note.canComplete" size="small" color="primary" :disabled="saving" @click="complete(note)">{{ note.overdue ? 'Completar y limpiar aviso' : 'Completar' }}</v-btn>
           </div>
       </li>
     </ul>

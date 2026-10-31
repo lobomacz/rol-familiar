@@ -1,5 +1,5 @@
 import { database } from './database.mjs'
-import { reorganizeWeek, reassignDay, changeUserRole, listNotes, createNote, appendNote, completeNote, clearPendingNotes, replacementOptions, switchAssignment, ensureCurrentWeek, listWeekStarting, listWeek } from './services.mjs'
+import { deleteNote, lockWeek, reorganizeWeek, reassignDay, changeUserRole, listNotes, createNote, appendNote, completeNote, clearPendingNotes, replacementOptions, switchAssignment, ensureCurrentWeek, listWeekStarting, listWeek } from './services.mjs'
 import { weekRange } from '../server/roles.mjs'
 import { genericPasswordCredentials } from '../server/password-reset.mjs'
 import { isStrongPassword } from '../src/helpers/password-policy.js'
@@ -110,6 +110,9 @@ async function handleOnce(request, env) {
     if (url.pathname === '/api/notes' && req.method === 'GET') return send(200, (await listNotes(db, session)))
     if (url.pathname === '/api/notes' && req.method === 'POST') return send(201, (await createNote(db, session, await readBody(request))))
     if (url.pathname === '/api/notes/clear-pending' && req.method === 'POST') return send(200, (await clearPendingNotes(db, session)))
+    const deleteMatch = url.pathname.match(/^\/api\/notes\/(\d+)$/)
+    if (deleteMatch && req.method === 'DELETE') return send(200, await deleteNote(db, session, Number(deleteMatch[1])))
+    if (url.pathname === '/api/roles/lock' && req.method === 'POST') return send(200, await lockWeek(db, session.id))
     const noteAction = url.pathname.match(/^\/api\/notes\/(\d+)\/(entries|complete)$/)
     if (noteAction && req.method === 'POST') {
       return send(200, noteAction[2] === 'entries'

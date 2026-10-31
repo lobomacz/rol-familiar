@@ -8,9 +8,9 @@ const literal = value => value === null ? 'NULL' : typeof value === 'number' ? S
 const rows = [], completions = []
 db.exec('BEGIN')
 try {
-  for (const table of ['users', 'members', 'roles', 'notes', 'note_entries']) {
+  for (const table of ['users', 'members', 'roles', 'notes', 'note_entries', 'week_locks', 'deleted_notes']) {
     if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table)) continue
-    for (const source of db.prepare(`SELECT * FROM ${table} ORDER BY id`).all()) {
+    for (const source of db.prepare(`SELECT * FROM ${table} ORDER BY ${table === 'week_locks' ? 'week_start' : table === 'deleted_notes' ? 'note_id' : 'id'}`).all()) {
       const row = { ...source }
       if (table === 'notes' && row.completed_at) {
         completions.push(`UPDATE notes SET completed_at = ${literal(row.completed_at)}, completed_by = ${literal(row.completed_by)} WHERE id = ${row.id};`)

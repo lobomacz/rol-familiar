@@ -95,6 +95,9 @@ test('Pages API supports authentication, administration, weeks, swaps and append
     }
     const beforeReorganization = await json(await call('/roles', 'GET', undefined, admin))
     assert.equal((await call('/roles/reorganize', 'POST', undefined, ana)).status, 403)
+    if (beforeReorganization.lock) {
+      assert.equal((await call('/roles/reorganize', 'POST', undefined, admin)).status, 409)
+    } else {
     const reorganized = await json(await call('/roles/reorganize', 'POST', undefined, admin))
     assert.notDeepEqual(reorganized.roles.map(role => role.assigned_user), beforeReorganization.roles.map(role => role.assigned_user))
     assert.deepEqual(reorganized.roles.map(role => role.id), beforeReorganization.roles.map(role => role.id))
@@ -105,8 +108,16 @@ test('Pages API supports authentication, administration, weeks, swaps and append
       if (index) assert.notEqual(role.assigned_user, reorganized.roles[index - 1].assigned_user)
     }
     assert.deepEqual((await json(await call('/roles/ensure-current', 'POST', undefined, admin))).roles, reorganized.roles)
+    }
     assert.equal((await db.prepare('SELECT count(*) AS count FROM notes').first()).count, 2)
     assert.equal((await db.prepare('SELECT assigned_user FROM roles WHERE id = ?').bind(previousRole.id).first()).assigned_user, a.id)
+    assert.equal((await call('/roles/lock', 'POST', undefined, ana)).status, 403)
+    const locked = await json(await call('/roles/lock', 'POST', undefined, admin))
+    assert.ok(locked.lock.locked_at)
+    assert.equal((await call('/roles/reorganize', 'POST', undefined, admin)).status, 409)
+    assert.equal((await call(`/notes/${note.id}`, 'DELETE', undefined, ana)).status, 403)
+    await json(await call(`/notes/${note.id}`, 'DELETE', undefined, admin))
+    assert.equal((await json(await call('/notes', 'GET', undefined, admin))).notes.some(row => row.id === note.id), false)
     await json(await call(`/users/${c.id}/role`, 'PATCH', { rol_usuario: 'usuario' }, admin))
     await json(await call(`/users/${b.id}/active`, 'PATCH', { activo: false }, admin))
     assert.equal((await call('/auth/login', 'POST', { username: 'bea', password: 'beados' })).status, 401)

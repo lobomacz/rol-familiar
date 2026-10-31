@@ -89,7 +89,7 @@ API autenticada: `GET /api/notes`, `POST /api/notes` (`date`, `text`, `priority`
 
 ### Reasignación por superadmin
 
-En la semana actual, el botón de cambiar usuario permite al superadmin reasignar cualquier día a un usuario activo con rol `usuario` o `admin`. Si el día participa en una sustitución, se cancela el intercambio vinculado y se restaura su parte recíproca. Las notas existentes conservan sus datos e historial. El servidor rechaza solicitudes de otros roles, fechas fuera de la semana actual y selecciones desactualizadas.
+En la semana actual, el botón de cambiar usuario permite al superadmin reasignar cualquier día a un usuario activo con rol `usuario` o `admin`. Si el día participa en una sustitución, se cancela el intercambio vinculado y se restaura su parte recíproca. Las notas existentes conservan sus datos e historial. El admin también puede reasignar días de la semana actual mientras la semana esté abierta. El superadmin conserva este permiso después del cierre. El servidor rechaza fechas fuera de la semana actual y selecciones desactualizadas.
 
 `PATCH /api/roles/:id/assignment` recibe `assigned_user`, `expected_assigned_user` y `expected_replace_user`. La columna `roles.manually_assigned` se agrega automáticamente al iniciar la API. Una semana con asignaciones manuales se conserva al recargar, aunque ya no cumpla las reglas de distribución automática.
 
@@ -98,3 +98,13 @@ El superadmin también puede desactivar cualquier interruptor de sustitución ac
 El botón **Reorganizar**, visible para superadmins en la semana actual, genera una distribución diferente usando usuarios activos con rol usuario o admin. Requiere confirmar que se reemplazarán las asignaciones manuales y se cancelarán los intercambios. Conserva los IDs de los días, sus notas y las semanas históricas. Si no existe otra distribución válida, devuelve un conflicto sin modificar los datos. `POST /api/roles/reorganize` aplica estas reglas tanto en SQLite como en Cloudflare D1.
 
 En la lista de días, el icono de notas está deshabilitado si no hay notas para la fecha; cuando existen, muestra su cantidad en una insignia azul y permite abrirlas. Las notas también se pueden crear desde la sección Notas.
+
+### Cierre de la semana
+
+Admin y superadmin pueden usar **Cerrar semana** con confirmación (`POST /api/roles/lock`). El cierre es definitivo y bloquea **Reorganizar** para todos, además de las reasignaciones del admin. Se mantienen los intercambios entre usuarios y las reasignaciones del superadmin. Una semana cerrada conserva su distribución al recargar, incluso si cambia la lista de participantes activos.
+
+El cierre automático entra en vigor el miércoles a las 00:00 de America/Managua, después de los dos primeros días de la semana. Se comprueba en el servidor al consultar o modificar el calendario: no depende de que haya un navegador abierto ni de un temporizador del cliente. El registro se materializa en la primera solicitud a partir del límite y guarda ese límite como fecha efectiva, con autor **Sistema**. `week_locks` conserva el tipo (`manual` o `automatic`), usuario y nombre del autor manual, y fecha UTC. El primer cierre se conserva sin sobrescribirse.
+
+Superadmin puede usar **Eliminar nota** en Notas o en el detalle de cualquier día (`DELETE /api/notes/:id`), incluso para notas completas e históricas. La eliminación lógica oculta la nota y su aviso; conserva el historial almacenado y los vínculos de las notas derivadas. Los demás roles no pueden eliminar notas.
+
+SQLite crea las tablas nuevas al iniciar. Para Cloudflare D1, aplicar `migrations/0003_week_locks.sql` antes de desplegar esta versión (`npm run cf:migrate:production`, o el comando del entorno correspondiente). La exportación a D1 incluye cierres y eliminaciones.

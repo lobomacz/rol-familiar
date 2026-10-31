@@ -7,6 +7,14 @@ import { listWeekStarting } from './roles.mjs'
 const now = new Date('2026-10-30T12:00:00Z')
 function fixture() {
   const db = new DatabaseSync(':memory:')
+  db.exec(`CREATE TABLE IF NOT EXISTS week_locks (
+  week_start TEXT PRIMARY KEY,
+  lock_type TEXT NOT NULL CHECK(lock_type IN ('manual', 'automatic')),
+  locked_by INTEGER REFERENCES users(id),
+  author TEXT NOT NULL,
+  locked_at TEXT NOT NULL
+);
+`)
   db.exec(`CREATE TABLE users (id INTEGER PRIMARY KEY, nombre TEXT, apellido TEXT, activo INTEGER, rol_usuario TEXT);
     CREATE TABLE roles (id INTEGER PRIMARY KEY, date TEXT UNIQUE, assigned_user INTEGER NOT NULL, replace_user INTEGER, rol_switched INTEGER DEFAULT 0);
     INSERT INTO users VALUES (1, 'A', 'One', 1, 'usuario'), (2, 'B', 'Two', 1, 'admin'), (3, 'C', 'Three', 1, 'usuario'),

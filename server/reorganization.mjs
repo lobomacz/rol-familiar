@@ -1,3 +1,4 @@
+import { weekLock } from './week-locks.mjs'
 import { randomInt } from 'node:crypto'
 import { weekRange, listWeek } from './roles.mjs'
 
@@ -39,11 +40,15 @@ export function reorganizationWrites(range, existing, assignments) {
   return writes
 }
 export function reorganizeWeek(db, actorId, now) {
+  if (db.prepare('SELECT rol_usuario FROM users WHERE id = ?').get(actorId)?.rol_usuario !== 'superadmin')
+    throw Object.assign(new Error('Solo un superadmin puede reorganizar la semana'), { status: 403 })
+  const range = weekRange(0, now)
+  if (weekLock(db, range.start, now)) throw Object.assign(new Error('La semana está cerrada y no se puede reorganizar'), { status: 409 })
   db.exec('BEGIN IMMEDIATE')
   try {
     if (db.prepare('SELECT rol_usuario FROM users WHERE id = ?').get(actorId)?.rol_usuario !== 'superadmin')
       throw Object.assign(new Error('Solo un superadmin puede reorganizar la semana'), { status: 403 })
-    const range = weekRange(0, now)
+    if (weekLock(db, range.start, now)) throw Object.assign(new Error('La semana está cerrada y no se puede reorganizar'), { status: 409 })
     const existing = listWeek(db, 0, now).roles
     const users = db.prepare("SELECT id FROM users WHERE activo = 1 AND rol_usuario IN ('usuario', 'admin')").all()
     // Only the immediately preceding day constrains adjacency.

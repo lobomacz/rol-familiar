@@ -13,11 +13,11 @@ function canComplete(db, note, user, today) {
 export function listNotes(db, user, now) {
   const today = todayInManagua(now)
   const notes = db.prepare(`SELECT n.*, u.nombre || ' ' || u.apellido AS assigned_name FROM notes n
-    JOIN users u ON u.id = n.assigned_user ORDER BY n.date DESC, n.id DESC`).all()
+    JOIN users u ON u.id = n.assigned_user WHERE NOT EXISTS (SELECT 1 FROM deleted_notes d WHERE d.note_id = n.id) ORDER BY n.date DESC, n.id DESC`).all()
   const entries = db.prepare(`SELECT e.*, u.nombre || ' ' || u.apellido AS author_name FROM note_entries e
     JOIN users u ON u.id = e.author_id ORDER BY e.id`).all()
   return { today, pendingCount: notes.filter(n => !n.completed_at && n.date < today).length,
-    notes: notes.map(note => ({ ...note, overdue: !note.completed_at && note.date < today,
+    notes: notes.map(note => ({ ...note, canDelete: user.rol_usuario === 'superadmin', overdue: !note.completed_at && note.date < today,
       canComplete: canComplete(db, note, user, today),
       entries: entries.filter(entry => entry.note_id === note.id) })) }
 }
@@ -26,7 +26,7 @@ const textValue = data => {
   return data.text.trim()
 }
 const getNote = (db, id) => {
-  const note = db.prepare('SELECT * FROM notes WHERE id = ?').get(id)
+  const note = db.prepare('SELECT * FROM notes WHERE id = ? AND NOT EXISTS (SELECT 1 FROM deleted_notes d WHERE d.note_id = notes.id)').get(id)
   if (!note) fail(404, 'Nota no encontrada')
   if (note.completed_at) fail(409, 'La nota está completa y no se puede modificar')
   return note
@@ -41,7 +41,7 @@ export function createNote(db, user, data) {
   try {
     if (data.parent_id != null) {
       if (!Number.isSafeInteger(data.parent_id)) fail(400, 'Nota de origen inválida')
-      const parent = db.prepare('SELECT completed_at FROM notes WHERE id = ?').get(data.parent_id)
+      const parent = db.prepare('SELECT completed_at FROM notes WHERE id = ? AND NOT EXISTS (SELECT 1 FROM deleted_notes d WHERE d.note_id = notes.id)').get(data.parent_id)
       if (!parent) fail(404, 'Nota de origen no encontrada')
       if (!parent.completed_at) fail(409, 'Solo se pueden derivar notas completas')
     }
@@ -69,6 +69,13 @@ export function completeNote(db, user, id, now) {
 export function clearPendingNotes(db, user, now) {
   if (!admin(user)) fail(403, 'Solo un administrador puede limpiar las notificaciones')
   const result = db.prepare(`UPDATE notes SET completed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), completed_by = ?
-    WHERE completed_at IS NULL AND date < ?`).run(user.id, todayInManagua(now))
+    WHERE completed_at IS NULL AND date < ? AND NOT EXISTS (SELECT 1 FROM deleted_notes d WHERE d.note_id = notes.id)`).run(user.id, todayInManagua(now))
   return { clearedCount: Number(result.changes) }
+}
+
+export function deleteNote(db, user, id) {
+  if (user.rol_usuario !== 'superadmin') fail(403, 'Solo un superadmin puede eliminar notas')
+  if (!db.prepare('SELECT id FROM notes WHERE id = ?').get(id)) fail(404, 'Nota no encontrada')
+  db.prepare("INSERT OR IGNORE INTO deleted_notes VALUES (?, ?, ?)").run(id, user.id, new Date().toISOString())
+  return { ok: true }
 }
