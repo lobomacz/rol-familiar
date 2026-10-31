@@ -5,6 +5,35 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase } from './database.mjs'
 import { appendNote, completeNote, createNote, listNotes, todayInManagua, clearPendingNotes } from './notes.mjs'
+import { ensureCurrentWeek } from './roles.mjs'
+
+test('any member can create notes on all seven current-week days, including past days and other assignments', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'week-notes-test-'))
+  const previous = process.env.SQLITE_PATH
+  process.env.SQLITE_PATH = join(directory, 'test.sqlite')
+  let db
+  try {
+    db = openDatabase()
+    for (const id of [1, 2]) db.prepare('INSERT INTO users(id, username, password_hash, nombre, apellido) VALUES (?, ?, ?, ?, ?)')
+      .run(id, `member${id}`, 'unused', `Member${id}`, 'Family')
+    const now = new Date('2026-10-31T18:00:00Z')
+    const week = ensureCurrentWeek(db, now)
+    assert.equal(week.roles.length, 7)
+    const member = { id: 1, rol_usuario: 'usuario' }
+    for (const role of week.roles) {
+      const { id } = createNote(db, member, { date: role.date, text: `Nota para ${role.date}\nSegunda línea: áéíóú` })
+      const note = listNotes(db, member, now).notes.find(note => note.id === id)
+      assert.equal(note.date, role.date)
+      assert.equal(note.assigned_user, role.assigned_user)
+      assert.equal(note.entries[0].text, `Nota para ${role.date}\nSegunda línea: áéíóú`)
+    }
+  } finally {
+    db?.close()
+    if (previous === undefined) delete process.env.SQLITE_PATH
+    else process.env.SQLITE_PATH = previous
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
 
 test('notes preserve appended text, assignment, links, overdue permissions and completed locks', () => {
   const directory = mkdtempSync(join(tmpdir(), 'notes-test-'))
