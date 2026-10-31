@@ -1,3 +1,4 @@
+import { reorganizeWeek } from './reorganization.mjs'
 import { reassignDay } from './reassignments.mjs'
 import { changeUserRole } from './user-roles.mjs'
 import { listNotes, createNote, appendNote, completeNote, clearPendingNotes } from './notes.mjs'
@@ -85,7 +86,7 @@ const server = createServer(async (req, res) => {
       const data = await readBody(req)
       if (typeof data?.currentPassword !== 'string' || !data.currentPassword || data.currentPassword.length > 1024)
         return send(400, { error: 'Ingrese su contraseña actual' })
-      if (!isStrongPassword(data?.newPassword)) return send(400, { error: 'La nueva contraseña debe tener exactamente 16 caracteres e incluir minúsculas, mayúsculas, números y símbolos.' })
+      if (!isStrongPassword(data?.newPassword)) return send(400, { error: 'La nueva contraseña debe tener exactamente 12 caracteres, minúsculas, mayúsculas, exactamente un número y un símbolo, sin espacios.' })
       if (data.newPassword === data.currentPassword) return send(400, { error: 'La nueva contraseña debe ser diferente de la actual' })
       if (data.confirmPassword !== data.newPassword) return send(400, { error: 'Las contraseñas no coinciden' })
       const account = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(session.id)
@@ -156,6 +157,7 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET' && replacementMatch) return send(200, replacementOptions(db, Number(replacementMatch[1]), session.id))
     const switchMatch = url.pathname.match(/^\/api\/roles\/(\d+)\/switch$/)
     if (req.method === 'PATCH' && switchMatch) return send(200, switchAssignment(db, Number(switchMatch[1]), session.id, await readBody(req)))
+    if (req.method === 'POST' && url.pathname === '/api/roles/reorganize') return send(200, reorganizeWeek(db, session.id))
     if (req.method === 'POST' && url.pathname === '/api/roles/ensure-current') return send(200, ensureCurrentWeek(db))
     if (req.method === 'GET' && url.pathname === '/api/roles') {
       const start = url.searchParams.get('start')

@@ -1,3 +1,4 @@
+import { reorganizedUsers, reorganizationWrites } from '../server/reorganization.mjs'
 import { randomInt } from 'node:crypto'
 import { weekRange } from '../server/roles.mjs'
 import { todayInManagua } from '../server/notes.mjs'
@@ -19,12 +20,12 @@ export async function ensureCurrentWeek(db, now) {
   let generationBlocked = null
   const users = await db.prepare("SELECT id FROM users WHERE activo = 1 AND rol_usuario IN ('usuario', 'admin')").all()
   const eligible = new Set(users.map(user => user.id))
-  let existing = await db.prepare('SELECT assigned_user, replace_user, rol_switched, date FROM roles WHERE date BETWEEN ? AND ? ORDER BY date').all(range.start, range.end)
+  let existing = await db.prepare('SELECT assigned_user, replace_user, rol_switched, date, manually_assigned FROM roles WHERE date BETWEEN ? AND ? ORDER BY date').all(range.start, range.end)
   const previousUser = (await db.prepare('SELECT assigned_user FROM roles WHERE date = ?').get(addDays(range.start, -1)))?.assigned_user
   const assigned = new Set(existing.map(role => role.assigned_user))
   const missing = existing.length === 7 && users.length <= 7 && users.some(user => !assigned.has(user.id))
-  const invalid = users.length < 2 || missing || existing.some((role, index) => !eligible.has(role.assigned_user)
-    || (role.rol_switched && !eligible.has(role.replace_user)) || role.assigned_user === (index ? existing[index - 1].assigned_user : previousUser))
+  const invalid = !existing.some(role => role.manually_assigned) && (users.length < 2 || missing || existing.some((role, index) => !eligible.has(role.assigned_user)
+    || (role.rol_switched && !eligible.has(role.replace_user)) || role.assigned_user === (index ? existing[index - 1].assigned_user : previousUser)))
   const writes = []
   if (existing.length && invalid) {
     writes.push(['DELETE FROM roles WHERE date BETWEEN ? AND ?', [range.start, range.end]])
@@ -55,9 +56,10 @@ export async function ensureCurrentWeek(db, now) {
 async function ownedCurrentRole(db, id, userId, range) {
   const role = await db.prepare('SELECT * FROM roles WHERE id = ?').get(id)
   if (!role) fail(404, 'Asignación no encontrada')
-  if (role.assigned_user !== userId) fail(403, 'Solo puede modificar sus propias asignaciones')
   if (role.date < range.start || role.date > range.end) fail(403, 'Solo puede modificar la semana actual')
   const user = await db.prepare('SELECT activo, rol_usuario FROM users WHERE id = ?').get(userId)
+  if (user?.rol_usuario === 'superadmin') return role
+  if (role.assigned_user !== userId) fail(403, 'Solo puede modificar sus propias asignaciones')
   if (!user || user.activo !== 1 || !['usuario', 'admin'].includes(user.rol_usuario)) fail(403, 'No puede modificar esta asignación')
   return role
 }
@@ -91,10 +93,10 @@ export async function switchAssignment(db, id, userId, data, now) {
     if (replacement.days.length > 1 && selected === null) fail(400, 'Seleccione el día del sustituto que cubrirá')
     if (selected !== null && (!Number.isSafeInteger(selected) || !replacement.days.some(day => day.id === selected))) fail(409, 'El día seleccionado no pertenece al sustituto o ya no está disponible')
     writes.push(['UPDATE roles SET rol_switched = 1, replace_user = ? WHERE id = ?', [data.replace_user, role.id]])
-    if (selected !== null) writes.push(['UPDATE roles SET rol_switched = 1, replace_user = ? WHERE id = ?', [userId, selected]])
+    if (selected !== null) writes.push(['UPDATE roles SET rol_switched = 1, replace_user = ? WHERE id = ?', [role.assigned_user, selected]])
   } else if (Object.hasOwn(data, 'expected_replace_user') && data.expected_replace_user !== role.replace_user) fail(409, 'La sustitución ha cambiado. Actualice las asignaciones antes de continuar.')
   else if (role.replace_user) writes.push([`UPDATE roles SET rol_switched = 0, replace_user = NULL WHERE date BETWEEN ? AND ?
-    AND ((assigned_user = ? AND replace_user = ?) OR (assigned_user = ? AND replace_user = ?))`, [range.start, range.end, userId, role.replace_user, role.replace_user, userId]])
+    AND ((assigned_user = ? AND replace_user = ?) OR (assigned_user = ? AND replace_user = ?))`, [range.start, range.end, role.assigned_user, role.replace_user, role.replace_user, role.assigned_user]])
   else writes.push(['UPDATE roles SET rol_switched = 0, replace_user = NULL WHERE id = ?', [role.id]])
   await db.atomic(writes)
   return listWeek(db, 0, now)
@@ -173,4 +175,44 @@ export async function clearPendingNotes(db, user, now) {
   if (!admin(user)) fail(403, 'Solo un administrador puede limpiar las notificaciones')
   const result = await db.prepare("UPDATE notes SET completed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), completed_by = ? WHERE completed_at IS NULL AND date < ?").run(user.id, todayInManagua(now))
   return { clearedCount: Number(result.changes) }
+}
+
+export async function reassignDay(db, actorId, roleId, data, now) {
+  const range = weekRange(0, now)
+  const actor = await db.prepare('SELECT rol_usuario FROM users WHERE id = ?').get(actorId)
+  if (actor?.rol_usuario !== 'superadmin') fail(403, 'Solo un superadmin puede cambiar la asignación')
+  const role = await db.prepare('SELECT * FROM roles WHERE id = ?').get(roleId)
+  if (!role) fail(404, 'Asignación no encontrada')
+  if (role.date < range.start || role.date > range.end) fail(403, 'Solo puede cambiar asignaciones de la semana actual')
+  if (!Number.isSafeInteger(data?.assigned_user)) fail(400, 'Seleccione un usuario válido')
+  const target = await db.prepare("SELECT id FROM users WHERE id = ? AND activo = 1 AND rol_usuario IN ('usuario', 'admin')").get(data.assigned_user)
+  if (!target) fail(400, 'Seleccione un usuario activo con rol usuario o admin')
+  if ((Object.hasOwn(data, 'expected_assigned_user') && data.expected_assigned_user !== role.assigned_user)
+    || (Object.hasOwn(data, 'expected_replace_user') && data.expected_replace_user !== role.replace_user))
+    fail(409, 'La asignación ha cambiado. Cierre el diálogo y actualice los roles antes de continuar.')
+  const writes = []
+  if (target.id !== role.assigned_user) {
+    if (role.replace_user) writes.push([`UPDATE roles SET rol_switched = 0, replace_user = NULL
+      WHERE date BETWEEN ? AND ? AND ((assigned_user = ? AND replace_user = ?) OR (assigned_user = ? AND replace_user = ?))`,
+      [range.start, range.end, role.assigned_user, role.replace_user, role.replace_user, role.assigned_user]])
+    writes.push(
+      ['UPDATE roles SET assigned_user = ?, replace_user = NULL, rol_switched = 0, manually_assigned = 1 WHERE id = ?', [target.id, role.id]],
+      ['UPDATE users SET ultimo_rol = (SELECT max(date) FROM roles WHERE assigned_user = ?) WHERE id = ? AND ultimo_rol = ?', [role.assigned_user, role.assigned_user, role.date]],
+      ['UPDATE users SET ultimo_rol = ? WHERE id = ? AND (ultimo_rol IS NULL OR ultimo_rol < ?)', [role.date, target.id, role.date]],
+    )
+  }
+  await db.atomic(writes)
+  return listWeek(db, 0, now)
+}
+
+export async function reorganizeWeek(db, actorId, now) {
+  if ((await db.prepare('SELECT rol_usuario FROM users WHERE id = ?').get(actorId))?.rol_usuario !== 'superadmin')
+    fail(403, 'Solo un superadmin puede reorganizar la semana')
+  const range = weekRange(0, now)
+  const existing = (await listWeek(db, 0, now)).roles
+  const users = await db.prepare("SELECT id FROM users WHERE activo = 1 AND rol_usuario IN ('usuario', 'admin')").all()
+  const previousUser = (await db.prepare('SELECT assigned_user FROM roles WHERE date = ?').get(addDays(range.start, -1)))?.assigned_user
+  const assignments = reorganizedUsers(users, previousUser, existing)
+  await db.atomic(reorganizationWrites(range, existing, assignments))
+  return listWeek(db, 0, now)
 }

@@ -23,6 +23,7 @@
             <h1 id="roles-heading" class="text-h5 font-weight-bold">{{ rolesHeading }}</h1>
             <p class="month-label text-body-2 text-medium-emphasis mt-1">{{ currentMonthYear || 'Calendario familiar' }}</p>
           </div>
+          <v-btn v-if="activeTab === 'actual' && user.rol_usuario === 'superadmin'" color="primary" variant="tonal" :disabled="loadingRoles || savingSwap" @click="reorganizeDialog = true">Reorganizar</v-btn>
           <v-chip color="primary" variant="tonal" size="small">{{ selectedRoles.length }} asignaciones</v-chip>
         </div>
         <v-tabs :model-value="activeTab" :disabled="loadingRoles || savingSwap" @update:model-value="changeWeekTab" color="primary" grow hide-slider height="56" class="week-tabs" aria-label="Seleccionar semana">
@@ -52,8 +53,10 @@
             <v-list-item-subtitle v-if="item.rol_switched" class="role-person">En sustitucion de {{ item.assigned_name }}</v-list-item-subtitle>
             <template #append>
               <v-btn v-if="activeTab === 'actual' && user.rol_usuario === 'superadmin'" icon="mdi-account-edit" variant="text" color="primary" :aria-label="`Cambiar usuario asignado al ${item.date}`" :disabled="savingSwap" @click="openAssignment(item)" />
-              <v-btn v-if="activeTab === 'actual'" icon="mdi-square-edit-outline" variant="text" color="primary" :aria-label="`Ver notas del ${item.date}`" @click="openDayNotes(item)" />
-              <v-switch class="ml-3" :model-value="Boolean(item.rol_switched)" :disabled="!canSwitch(item) || savingSwap || loadingRoles" :loading="savingRoleId === item.id" color="primary" inset hide-details density="compact" :aria-label="`Sustituir la asignación del ${item.date} de ${item.assigned_name}`" @update:model-value="toggleReplacement(item, $event)" />
+              <v-btn icon variant="text" :color="dayNoteCount(item.date) ? 'blue' : undefined" :disabled="!dayNoteCount(item.date) || savingSwap" :aria-label="`Notas del ${item.date}: ${dayNoteCount(item.date)}`" @click="openDayNotes(item)">
+                <v-badge :model-value="dayNoteCount(item.date) > 0" :content="dayNoteCount(item.date)" color="blue" floating><v-icon icon="mdi-square-edit-outline" /></v-badge>
+              </v-btn>
+              <v-switch class="replacement-switch ml-3" label="Cambiar" :model-value="Boolean(item.rol_switched)" :disabled="!canSwitch(item) || savingSwap || loadingRoles" :loading="savingRoleId === item.id" color="primary" inset hide-details density="compact" :aria-label="`Sustituir la asignación del ${item.date} de ${item.assigned_name}`" @update:model-value="toggleReplacement(item, $event)" />
             </template>
           </v-list-item>
         </v-list>
@@ -85,17 +88,24 @@
       </nav>
 
     </div>
+    <v-dialog v-model="reorganizeDialog" max-width="480" :persistent="savingSwap" aria-labelledby="reorganize-title">
+      <v-card rounded="xl">
+        <v-card-title id="reorganize-title">Reorganizar semana actual</v-card-title>
+        <v-card-text>Se generará una distribución diferente para toda la semana actual. Se reemplazarán las asignaciones manuales y se cancelarán los intercambios. Las notas se conservarán en sus fechas.</v-card-text>
+        <v-card-actions><v-btn :disabled="savingSwap" @click="reorganizeDialog = false">Cancelar</v-btn><v-spacer /><v-btn color="primary" :loading="savingSwap" @click="reorganize">Reorganizar</v-btn></v-card-actions>
+      </v-card>
+    </v-dialog>
     <AssignmentDialog v-if="user.rol_usuario === 'superadmin'" v-model="assignmentDialog" :role="assignmentRole" @saved="assignmentSaved" @unauthorized="emit('unauthorized')" />
     <v-dialog v-model="replacementDialog" max-width="480" :persistent="savingSwap" scrollable aria-labelledby="replacement-title" @after-leave="resetReplacement">
       <v-card rounded="xl">
         <v-card-title id="replacement-title">Seleccionar sustituto</v-card-title>
         <v-card-text>
-          <p class="text-body-2 mb-4" aria-live="polite">Selecciona quién cubrirá tu asignación.<template v-if="replacementDays.length > 1"> Selecciona también el día de esa persona que cubrirás a cambio.</template> Ambos quedarán reservados para este intercambio durante la semana.</p>
+          <p class="text-body-2 mb-4" aria-live="polite">Selecciona quién cubrirá la asignación.<template v-if="replacementDays.length > 1"> Selecciona también el día que cubrirá el usuario originalmente asignado a cambio.</template> Ambos quedarán reservados para este intercambio durante la semana.</p>
           <v-alert v-if="swapError" type="error" variant="tonal" role="alert" class="mb-4">{{ swapError }}</v-alert>
           <v-form id="replacement-form" :disabled="savingSwap || loadingReplacements" @submit.prevent="confirmReplacement">
             <v-select v-model="selectedReplacement" :items="replacementUsers" :item-title="userDisplayName" item-value="id" label="Sustituto" :loading="loadingReplacements" :disabled="loadingReplacements || !replacementUsers.length" :error-messages="replacementValidation.selectedReplacement.$errors.map(e => e.$message)" @blur="replacementValidation.selectedReplacement.$touch()" no-data-text="No hay sustitutos disponibles" />
             <v-select v-if="replacementDays.length > 1" v-model="selectedReplacementDay" :items="replacementDays" :item-title="day => `${shortDay(day.date)} · ${formatWeekDate(day.date)}`" item-value="id" label="Día a cubrir del sustituto" :error-messages="replacementValidation.selectedReplacementDay.$errors.map(e => e.$message)" @blur="replacementValidation.selectedReplacementDay.$touch()" />
-            <p v-else-if="replacementDays.length === 1" class="text-body-2 mb-4">Cubrirás el {{ shortDay(replacementDays[0].date) }} {{ formatWeekDate(replacementDays[0].date) }}.</p>
+            <p v-else-if="replacementDays.length === 1" class="text-body-2 mb-4">El usuario originalmente asignado cubrirá el {{ shortDay(replacementDays[0].date) }} {{ formatWeekDate(replacementDays[0].date) }}.</p>
             <p v-else-if="selectedReplacement" class="text-body-2 mb-4">Este sustituto no tiene días asignados para intercambiar.</p>
             <p v-if="!loadingReplacements && !replacementUsers.length && !swapError" class="text-body-2" role="status">No hay usuarios disponibles. Los participantes de una sustitución pendiente no pueden iniciar otro intercambio.</p>
           </v-form>
@@ -126,18 +136,25 @@ import PasswordChangeDialog from '../components/PasswordChangeDialog.vue'
 const props = defineProps({ user: { type: Object, required: true }, loggingOut: Boolean, initialTab: String, initialExploreTab: String })
 const emit = defineEmits(['logout', 'new-user', 'unauthorized'])
 const canCreateUsers = computed(() => ['admin', 'superadmin'].includes(props.user.rol_usuario))
+const reorganizeDialog = ref(false)
 const assignmentDialog = ref(false), assignmentRole = ref(null)
 function openAssignment(item) { assignmentRole.value = item; assignmentDialog.value = true }
 function assignmentSaved(week) { currentWeek.value = week; notesRevision.value++; loadPendingNotes() }
 const dayNotesDialog = ref(false), notesDate = ref('')
 function openDayNotes(item) { notesDate.value = item.date; dayNotesDialog.value = true }
-const pendingCount = ref(0), pendingOnly = ref(false)
+const pendingCount = ref(0), pendingOnly = ref(false), dayNotes = ref([])
+const notesByDate = computed(() => {
+  const counts = new Map()
+  for (const note of dayNotes.value) counts.set(note.date, (counts.get(note.date) || 0) + 1)
+  return counts
+})
+const dayNoteCount = date => notesByDate.value.get(date) || 0
 let notificationTimer
 const pendingDialog = ref(false), notesRevision = ref(0)
 function openPendingNotes() { if (pendingCount.value > 0 && canCreateUsers.value) pendingDialog.value = true }
 function notificationsChanged() { notesRevision.value++; loadPendingNotes() }
 async function loadPendingNotes() {
-  try { const data = await request('/api/notes'); pendingCount.value = data.pendingCount } catch { /* The page displays request errors; polling retries automatically. */ }
+  try { const data = await request('/api/notes'); pendingCount.value = data.pendingCount; dayNotes.value = data.notes } catch { /* The page displays request errors; polling retries automatically. */ }
 }
 onMounted(() => { loadPendingNotes(); notificationTimer = setInterval(loadPendingNotes, 60000) })
 onBeforeUnmount(() => clearInterval(notificationTimer))
@@ -187,7 +204,7 @@ watch(selectedReplacement, () => {
   replacementValidation.value.selectedReplacementDay.$reset()
 })
 const replacementValidation = useReplacementValidation(selectedReplacement, selectedReplacementDay, replacementDays)
-const canSwitch = item => activeTab.value === 'actual' && (props.user.rol_usuario === 'superadmin' ? Boolean(item.rol_switched) : item.assigned_user === props.user.id) && item.date >= currentWeek.value.start && item.date <= currentWeek.value.end
+const canSwitch = item => activeTab.value === 'actual' && (props.user.rol_usuario === 'superadmin' || item.assigned_user === props.user.id) && item.date >= currentWeek.value.start && item.date <= currentWeek.value.end
 function changeWeekTab(value) {
   exploredWeek.value = null
   activeTab.value = value
@@ -217,7 +234,7 @@ function resetReplacement() {
   replacementValidation.value.$reset()
 }
 async function toggleReplacement(item, enabled) {
-  if (!canSwitch(item) || savingSwap.value || (enabled && props.user.rol_usuario === 'superadmin')) return
+  if (!canSwitch(item) || savingSwap.value) return
   if (!enabled) {
     savingSwap.value = true; savingRoleId.value = item.id; error.value = ''
     try { currentWeek.value = await request(`/api/roles/${item.id}/switch`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rol_switched: false, expected_replace_user: item.replace_user }) }) }
@@ -249,6 +266,15 @@ async function request(url, options) {
   if (!response.ok) throw new Error(data.error || 'No se pudieron cargar los roles')
   return data
 }
+async function reorganize() {
+  if (savingSwap.value || loadingRoles.value) return
+  savingSwap.value = true; error.value = ''
+  try {
+    currentWeek.value = await request('/api/roles/reorganize', { method: 'POST' })
+    notesRevision.value++; await loadPendingNotes()
+  } catch (err) { error.value = err.message }
+  finally { savingSwap.value = false; reorganizeDialog.value = false }
+}
 async function loadRoles() {
   loadingRoles.value = true; error.value = ''
   try {
@@ -275,11 +301,14 @@ onMounted(loadRoles)
 .week-tabs :deep(.v-btn__content) { white-space: normal; }
 .week-tabs :deep(.week-tab-active) { background: rgb(var(--v-theme-surface)); box-shadow: 0 2px 6px #173d3015; }
 .role-list { display: grid; gap: 10px; padding: 0; overflow: visible; flex: 1; align-content: start; }
-.role-item { background: #fff; border: 1px solid #e4ebe7; min-height: 88px; padding: 14px 16px; }
+.role-item { grid-template-areas: "prepend content" "prepend append"; grid-template-columns: max-content minmax(0, 1fr); background: #fff; border: 1px solid #e4ebe7; min-height: 88px; padding: 14px 16px; }
 .role-item-switched { border-color: #adc7bb; background: #f7fbf9; }
 .date-tile { width: 52px; min-height: 60px; margin-right: 16px; border-radius: 12px; background: #edf3f0; color: rgb(var(--v-theme-primary)); display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .date-tile span { font-size: 11px; text-transform: uppercase; font-weight: 600; }
 .date-tile strong { font-size: 24px; line-height: 1.2; }
+.role-item :deep(.v-list-item__append) { grid-area: append; justify-self: start; flex-wrap: wrap; gap: 2px; margin-top: 6px; }
+.replacement-switch { flex: 0 0 auto; }
+.replacement-switch :deep(.v-label) { font-size: 12px; }
 .role-date { font-size: 14px; font-weight: 700; white-space: normal; }
 .role-date::first-letter { text-transform: uppercase; }
 .role-person { margin-top: 5px; font-size: 14px; line-height: 1.5; white-space: normal; opacity: .8; -webkit-line-clamp: unset; overflow: visible; overflow-wrap: anywhere; }

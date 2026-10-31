@@ -41,6 +41,8 @@ npm run cf:migrate:production
 npm run cf:migrate:preview
 ```
 
+Migration `0002_manual_assignments.sql` adds the flag that preserves superadmin assignment changes when the current week is refreshed. For existing deployments, run the migration commands above before deploying the updated Functions.
+
 The initial migration creates users, sessions, roles, notes, append-only note entries, members, indexes, revision guards and persisted authentication-attempt counters. Applying migrations does not create an account or copy the Docker database automatically.
 
 ## 2. Initialize data: choose one path
