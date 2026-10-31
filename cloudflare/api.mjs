@@ -1,5 +1,5 @@
 import { database } from './database.mjs'
-import { changeUserRole, listNotes, createNote, appendNote, completeNote, clearPendingNotes, replacementOptions, switchAssignment, ensureCurrentWeek, listWeekStarting, listWeek } from './services.mjs'
+import { reorganizeWeek, reassignDay, changeUserRole, listNotes, createNote, appendNote, completeNote, clearPendingNotes, replacementOptions, switchAssignment, ensureCurrentWeek, listWeekStarting, listWeek } from './services.mjs'
 import { weekRange } from '../server/roles.mjs'
 import { genericPasswordCredentials } from '../server/password-reset.mjs'
 import { isStrongPassword } from '../src/helpers/password-policy.js'
@@ -90,7 +90,7 @@ async function handleOnce(request, env) {
       const data = await readBody(request)
       if (typeof data?.currentPassword !== 'string' || !data.currentPassword || data.currentPassword.length > 1024)
         return send(400, { error: 'Ingrese su contraseña actual' })
-      if (!isStrongPassword(data?.newPassword)) return send(400, { error: 'La nueva contraseña debe tener exactamente 16 caracteres e incluir minúsculas, mayúsculas, números y símbolos.' })
+      if (!isStrongPassword(data?.newPassword)) return send(400, { error: 'La nueva contraseña debe tener exactamente 12 caracteres, minúsculas, mayúsculas, exactamente un número y un símbolo, sin espacios.' })
       if (data.newPassword === data.currentPassword) return send(400, { error: 'La nueva contraseña debe ser diferente de la actual' })
       if (data.confirmPassword !== data.newPassword) return send(400, { error: 'Las contraseñas no coinciden' })
       const account = (await db.prepare('SELECT password_hash FROM users WHERE id = ?').get(session.id))
@@ -159,10 +159,13 @@ async function handleOnce(request, env) {
       ])
       return send(200, { id: target.id, activo: data.activo })
     }
+    const assignmentMatch = url.pathname.match(/^\/api\/roles\/(\d+)\/assignment$/)
+    if (req.method === 'PATCH' && assignmentMatch) return send(200, await reassignDay(db, session.id, Number(assignmentMatch[1]), await readBody(request)))
     const replacementMatch = url.pathname.match(/^\/api\/roles\/(\d+)\/replacements$/)
     if (req.method === 'GET' && replacementMatch) return send(200, (await replacementOptions(db, Number(replacementMatch[1]), session.id)))
     const switchMatch = url.pathname.match(/^\/api\/roles\/(\d+)\/switch$/)
     if (req.method === 'PATCH' && switchMatch) return send(200, (await switchAssignment(db, Number(switchMatch[1]), session.id, await readBody(request))))
+    if (req.method === 'POST' && url.pathname === '/api/roles/reorganize') return send(200, await reorganizeWeek(db, session.id))
     if (req.method === 'POST' && url.pathname === '/api/roles/ensure-current') return send(200, (await ensureCurrentWeek(db)))
     if (req.method === 'GET' && url.pathname === '/api/roles') {
       const start = url.searchParams.get('start')

@@ -143,8 +143,8 @@ test('superadmins can disable either side of any current-week swap without affec
       assert.throws(() => switchAssignment(db, roleId, 5, { rol_switched: false, expected_replace_user: 999 }, now), rejectStatus(409))
       assert.throws(() => switchAssignment(db, roleId, 6, { rol_switched: false }, now), rejectStatus(403))
       for (const id of [8, 9]) assert.throws(() => switchAssignment(db, id, 5, { rol_switched: false }, now), rejectStatus(403))
-      assert.throws(() => switchAssignment(db, 4, 5, enable(3), now), rejectStatus(403))
-      assert.throws(() => replacementOptions(db, 4, 5, now), rejectStatus(403))
+      assert.deepEqual(replacementOptions(db, 4, 5, now).users, [])
+      assert.throws(() => switchAssignment(db, 4, 5, enable(3), now), rejectStatus(409))
       assert.deepEqual(snapshot(db), before)
       const expected = before.find(role => role.id === roleId).replace_user
       const week = switchAssignment(db, roleId, 5, { rol_switched: false, expected_replace_user: expected }, now)
@@ -164,4 +164,21 @@ test('superadmins can disable a replacement without a reciprocal day', () => {
     switchAssignment(db, 1, 5, { rol_switched: false, expected_replace_user: 6 }, now)
     assert.deepEqual(snapshot(db), original)
   } finally { db.close() }
+})
+
+test('superadmins start and undo replacements on every current-week day using the original participant', () => {
+  for (let roleId = 1; roleId <= 7; roleId++) {
+    const db = fixture()
+    try {
+      const before = snapshot(db)
+      const source = before.find(role => role.id === roleId)
+      const replacement = replacementOptions(db, roleId, 5, now).users.find(user => user.days.length)
+      const week = switchAssignment(db, roleId, 5, { rol_switched: true, replace_user: replacement.id, replace_role_id: replacement.days[0].id }, now)
+      assert.equal(week.roles.find(role => role.id === roleId).replace_user, replacement.id)
+      assert.equal(week.roles.find(role => role.id === replacement.days[0].id).replace_user, source.assigned_user)
+      switchAssignment(db, roleId, 5, { rol_switched: false, expected_replace_user: replacement.id }, now)
+      assert.deepEqual(snapshot(db), before)
+      assert.throws(() => replacementOptions(db, 8, 5, now), rejectStatus(403))
+    } finally { db.close() }
+  }
 })

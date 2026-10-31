@@ -11,7 +11,7 @@ const changingPassword = ref(false), passwordError = ref('')
 const passwordForm = reactive({ currentPassword: '', newPassword: '', confirmPassword: '' })
 const passwordValidation = useVuelidate(computed(() => ({
   currentPassword: { required: helpers.withMessage('Ingrese su contraseña actual', required) },
-  newPassword: { strong: helpers.withMessage('Use exactamente 16 caracteres, con minúsculas, mayúsculas, números y símbolos.', isStrongPassword) },
+  newPassword: { strong: helpers.withMessage('Use exactamente 12 caracteres, con minúsculas, mayúsculas, exactamente un número y un símbolo, sin espacios.', isStrongPassword) },
   confirmPassword: { required: helpers.withMessage('Confirme la nueva contraseña', required), sameAs: helpers.withMessage('Las contraseñas no coinciden', sameAs(passwordForm.newPassword)) },
 })), passwordForm)
 const passwordStrength = computed(() => passwordRequirements.filter(rule => rule.test(passwordForm.newPassword)).length)
@@ -47,8 +47,8 @@ async function request(url, options) {
           <v-form id="password-form" :disabled="changingPassword" @submit.prevent="changePassword">
             <v-alert v-if="passwordError" type="error" variant="tonal" role="alert" class="mb-4">{{ passwordError }}</v-alert>
             <v-text-field v-model="passwordForm.currentPassword" label="Contraseña actual" type="password" autocomplete="current-password" maxlength="1024" :error-messages="passwordValidation.currentPassword.$errors.map(e => e.$message)" @blur="passwordValidation.currentPassword.$touch()" />
-            <v-text-field v-model="passwordForm.newPassword" label="Nueva contraseña" type="password" autocomplete="new-password" maxlength="16" counter="16" :error-messages="passwordValidation.newPassword.$errors.map(e => e.$message)" @blur="passwordValidation.newPassword.$touch()" aria-describedby="password-strength" />
-            <v-text-field v-model="passwordForm.confirmPassword" label="Confirmar nueva contraseña" type="password" autocomplete="new-password" maxlength="16" :error-messages="passwordValidation.confirmPassword.$errors.map(e => e.$message)" @blur="passwordValidation.confirmPassword.$touch()" />
+            <v-text-field v-model="passwordForm.newPassword" label="Nueva contraseña" type="password" autocomplete="new-password" maxlength="12" counter="12" :error-messages="passwordValidation.newPassword.$errors.map(e => e.$message)" @blur="passwordValidation.newPassword.$touch()" aria-describedby="password-strength" />
+            <v-text-field v-model="passwordForm.confirmPassword" label="Confirmar nueva contraseña" type="password" autocomplete="new-password" maxlength="12" :error-messages="passwordValidation.confirmPassword.$errors.map(e => e.$message)" @blur="passwordValidation.confirmPassword.$touch()" />
             <div id="password-strength" class="mt-2" aria-live="polite">
               <p class="text-body-2 mb-2">Fortaleza: {{ strengthLabel }}</p>
               <v-progress-linear :model-value="passwordStrength * 20" :color="passwordStrength === 5 ? 'success' : passwordStrength >= 3 ? 'warning' : 'error'" rounded height="8" aria-label="Fortaleza de la contraseña" />

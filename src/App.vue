@@ -16,6 +16,7 @@ const loading = ref(false)
 const popup = ref(false)
 const networkError = ref('')
 const form = reactive({ username: '', password: '' })
+const showLoginPassword = ref(false)
 const validation = useVuelidate({
   username: { required: helpers.withMessage('Ingrese su usuario', required) },
   password: { required: helpers.withMessage('Ingrese su contraseña', required) },
@@ -57,6 +58,7 @@ async function login() {
     user.value = (await response.json()).user
     mainTab.value = 'roles'
     form.password = ''
+    showLoginPassword.value = false
     validation.value.$reset()
     redirect('/roles')
   } catch { networkError.value = 'No se pudo conectar con el servidor. Intente de nuevo.' }
@@ -69,6 +71,7 @@ async function logout() {
     if (!response.ok) throw new Error('logout')
     user.value = null
     form.password = ''
+    showLoginPassword.value = false
     redirect('/login')
   } catch { networkError.value = 'No se pudo cerrar la sesión. Intente de nuevo.' }
   finally { loading.value = false }
@@ -93,11 +96,15 @@ onBeforeUnmount(() => window.removeEventListener('popstate', restoreSession))
           <h1 class="text-h5 font-weight-bold mb-2">Iniciar sesión</h1>
           <p class="text-body-2 text-medium-emphasis mb-6">Ingrese sus datos para continuar.</p>
           <v-alert v-if="networkError" type="error" role="alert" class="mb-4">{{ networkError }}</v-alert>
-          <v-form @submit.prevent="login">
-            <v-text-field v-model="form.username" label="Usuario" autocomplete="username" maxlength="100"
+          <v-form autocomplete="off" @submit.prevent="login">
+            <v-text-field v-model="form.username" label="Usuario" autocomplete="off" autocapitalize="none" autocorrect="off" :spellcheck="false" maxlength="100"
               :error-messages="validation.username.$errors.map(error => error.$message)" @blur="validation.username.$touch()" />
-            <v-text-field v-model="form.password" label="Contraseña" type="password" autocomplete="current-password" maxlength="1024"
-              :error-messages="validation.password.$errors.map(error => error.$message)" @blur="validation.password.$touch()" />
+            <v-text-field v-model="form.password" label="Contraseña" :type="showLoginPassword ? 'text' : 'password'" autocomplete="off" autocapitalize="none" autocorrect="off" :spellcheck="false" maxlength="1024"
+              :error-messages="validation.password.$errors.map(error => error.$message)" @blur="validation.password.$touch()">
+              <template #append-inner>
+                <v-btn type="button" variant="text" size="small" :aria-label="showLoginPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'" :aria-pressed="showLoginPassword" @click="showLoginPassword = !showLoginPassword">{{ showLoginPassword ? 'Ocultar' : 'Mostrar' }}</v-btn>
+              </template>
+            </v-text-field>
             <v-btn type="submit" color="primary" class="responsive-action" size="large" :loading="loading">Ingresar</v-btn>
           </v-form>
         </v-card>
@@ -114,6 +121,7 @@ onBeforeUnmount(() => window.removeEventListener('popstate', restoreSession))
 </template>
 
 <style scoped>
+.login-container :deep(input) { user-select: text; -webkit-user-select: text; -webkit-touch-callout: default; }
 .login-container { min-height: 100vh; min-height: 100dvh; padding-block: max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-bottom)); display: flex; align-items: center; justify-content: center; }
 </style>
 

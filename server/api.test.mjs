@@ -112,7 +112,7 @@ test('SQLite authentication, session lifecycle and member persistence', async ()
     const stored = adminDb.prepare('SELECT * FROM users WHERE id = ?').get(created.id)
     assert.notEqual(stored.password_hash, password)
     assert.equal(await verifyPassword('nuevapersona', stored.password_hash), true)
-    const newUserPassword = 'UserPassword12!@'
+    const newUserPassword = 'UserSecret1!'
     const userPasswordChange = body => fetch(`${base}/api/auth/password`, { method: 'POST', headers: { Cookie: temporaryCookie, 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     assert.equal((await userPasswordChange({ currentPassword: 'nuevapersona', newPassword: 'weak', confirmPassword: 'weak' })).status, 400)
     assert.ok(adminDb.prepare('SELECT password_reset_at FROM users WHERE id = ?').get(created.id).password_reset_at)
@@ -141,11 +141,11 @@ test('SQLite authentication, session lifecycle and member persistence', async ()
     const regularCookie = regularLogin.headers.get('set-cookie').split(';')[0]
     const switchRole = (id, body, authCookie = regularCookie) => fetch(`${base}/api/roles/${id}/switch`, { method: 'PATCH', headers: { Cookie: authCookie, 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     assert.equal((await switchRole(otherRole.id, { rol_switched: true, replace_user: created.id })).status, 403)
-    assert.equal((await switchRole(ownRole.id, { rol_switched: true, replace_user: otherRole.assigned_user }, cookie)).status, 403)
+    assert.equal((await switchRole(ownRole.id, { rol_switched: true, replace_user: otherRole.assigned_user }, cookie)).status, 400)
     const options = await fetch(`${base}/api/roles/${ownRole.id}/replacements`, { headers: { Cookie: regularCookie } })
     assert.equal(options.status, 200)
     assert.deepEqual((await options.json()).users.map(user => user.id), [otherRole.assigned_user])
-    const swapped = await switchRole(ownRole.id, { rol_switched: true, replace_user: otherRole.assigned_user, replace_role_id: otherRole.id })
+    const swapped = await switchRole(ownRole.id, { rol_switched: true, replace_user: otherRole.assigned_user, replace_role_id: otherRole.id }, cookie)
     assert.equal(swapped.status, 200)
     const swappedWeek = await swapped.json()
     assert.equal(swappedWeek.roles.find(role => role.id === ownRole.id).replace_user, otherRole.assigned_user)
@@ -240,7 +240,7 @@ test('SQLite authentication, session lifecycle and member persistence', async ()
     assert.equal((await fetch(`${base}/api/roles/history`, { headers: { Cookie: resetCookie } })).status, 200)
     assert.equal(adminDb.prepare('SELECT password_reset_at FROM users WHERE id = ?').get(created.id).password_reset_at, null)
     adminDb.close()
-    const newPassword = 'StrongPass12!@#$'
+    const newPassword = 'StrongPass1!'
     const otherLogin = await login('tester', password)
     const otherCookie = otherLogin.headers.get('set-cookie').split(';')[0]
     const changePassword = body => fetch(`${base}/api/auth/password`, { method: 'POST', headers: { Cookie: cookie, 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
