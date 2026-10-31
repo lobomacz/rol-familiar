@@ -316,12 +316,13 @@ onMounted(loadRoles)
 .week-tabs :deep(.v-btn__content) { white-space: normal; }
 .week-tabs :deep(.week-tab-active) { background: rgb(var(--v-theme-surface)); box-shadow: 0 2px 6px #173d3015; }
 .role-list { display: grid; gap: 10px; padding: 0; overflow: visible; flex: 1; align-content: start; }
-.role-item { grid-template-areas: "prepend content" "prepend append"; grid-template-columns: max-content minmax(0, 1fr); background: #fff; border: 1px solid #e4ebe7; min-height: 88px; padding: 14px 16px; }
+.role-item { grid-template-areas: "prepend content append"; grid-template-columns: max-content minmax(0, 1fr) max-content; background: #fff; border: 1px solid #e4ebe7; min-height: 88px; padding: 14px 16px; }
+.role-item :deep(.v-list-item__content) { align-self: stretch; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; min-width: 0; text-align: left; }
 .role-item-switched { border-color: #adc7bb; background: #f7fbf9; }
 .date-tile { width: 52px; min-height: 60px; margin-right: 16px; border-radius: 12px; background: #edf3f0; color: rgb(var(--v-theme-primary)); display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .date-tile span { font-size: 11px; text-transform: uppercase; font-weight: 600; }
 .date-tile strong { font-size: 24px; line-height: 1.2; }
-.role-item :deep(.v-list-item__append) { grid-area: append; justify-self: end; justify-content: flex-end; flex-wrap: wrap; gap: 2px; margin-top: 6px; }
+.role-item :deep(.v-list-item__append) { grid-area: append; justify-self: end; justify-content: flex-end; flex-wrap: wrap; gap: 2px; margin-left: 8px; }
 .replacement-switch { flex: 0 0 auto; }
 .replacement-switch :deep(.v-selection-control) { flex-direction: column-reverse; align-items: center; }
 .replacement-switch :deep(.v-label) { width: calc(52px * var(--v-switch-scale, 1)); height: auto; justify-content: center; margin: 0 0 6px; padding: 0; font-family: inherit; font-size: 10px; font-weight: 500; letter-spacing: 0; line-height: 1.2; text-align: center; white-space: nowrap; }
