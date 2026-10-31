@@ -1,11 +1,14 @@
+import { weekLock } from './week-locks.mjs'
 import { listWeek, weekRange } from './roles.mjs'
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }) }
 export function reassignDay(db, actorId, roleId, data, now) {
   const range = weekRange(0, now)
+  weekLock(db, range.start, now)
   db.exec('BEGIN IMMEDIATE')
   try {
     const actor = db.prepare('SELECT rol_usuario FROM users WHERE id = ?').get(actorId)
-    if (actor?.rol_usuario !== 'superadmin') fail(403, 'Solo un superadmin puede cambiar la asignación')
+    if (!['admin', 'superadmin'].includes(actor?.rol_usuario)) fail(403, 'No puede cambiar la asignación')
+    if (actor.rol_usuario === 'admin' && weekLock(db, range.start, now)) fail(409, 'La semana está cerrada')
     const role = db.prepare('SELECT * FROM roles WHERE id = ?').get(roleId)
     if (!role) fail(404, 'Asignación no encontrada')
     if (role.date < range.start || role.date > range.end) fail(403, 'Solo puede cambiar asignaciones de la semana actual')

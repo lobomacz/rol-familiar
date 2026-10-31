@@ -1,3 +1,4 @@
+import { weekLock } from './week-locks.mjs'
 import { randomInt } from 'node:crypto'
 
 const addDays = (date, days) => {
@@ -15,6 +16,7 @@ export function weekRange(offset = 0, now = new Date()) {
 }
 export function ensureCurrentWeek(db, now) {
   const range = weekRange(0, now)
+  const lock = weekLock(db, range.start, now)
   let generationBlocked = null
   db.exec('BEGIN IMMEDIATE')
   try {
@@ -29,7 +31,7 @@ export function ensureCurrentWeek(db, now) {
       !eligible.has(role.assigned_user) ||
       (role.rol_switched && !eligible.has(role.replace_user)) ||
       role.assigned_user === (index ? existing[index - 1].assigned_user : previousUser)))
-    if (existing.length && invalid) {
+    if (!lock && existing.length && invalid) {
       const affected = [...new Set(existing.map(role => role.assigned_user))]
       db.prepare('DELETE FROM roles WHERE date BETWEEN ? AND ?').run(range.start, range.end)
       const restoreLastTurn = db.prepare(`UPDATE users SET ultimo_rol = (SELECT max(date) FROM roles WHERE assigned_user = users.id)
@@ -61,13 +63,13 @@ export function ensureCurrentWeek(db, now) {
   return { ...listWeek(db, 0, now), generationBlocked }
 }
 export function listWeek(db, offset, now) {
-  return listWeekStarting(db, weekRange(offset, now).start)
+  return listWeekStarting(db, weekRange(offset, now).start, now)
 }
-export function listWeekStarting(db, start) {
+export function listWeekStarting(db, start, now) {
   const range = { start, end: addDays(start, 6) }
   const roles = db.prepare(`SELECT r.*, a.nombre || ' ' || a.apellido AS assigned_name,
     b.nombre || ' ' || b.apellido AS replacement_name FROM roles r
     JOIN users a ON a.id = r.assigned_user LEFT JOIN users b ON b.id = r.replace_user
     WHERE r.date BETWEEN ? AND ? ORDER BY r.date, r.id`).all(range.start, range.end)
-  return { ...range, roles }
+  return { ...range, roles, lock: start === weekRange(0, now).start ? weekLock(db, start, now) : db.prepare('SELECT * FROM week_locks WHERE week_start = ?').get(start) || null }
 }

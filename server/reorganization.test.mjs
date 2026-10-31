@@ -7,7 +7,7 @@ import { openDatabase } from './database.mjs'
 import { ensureCurrentWeek, listWeek } from './roles.mjs'
 import { reorganizeWeek, reorganizedUsers } from './reorganization.mjs'
 import { reassignDay } from './reassignments.mjs'
-const now = new Date('2026-10-30T12:00:00Z')
+const now = new Date('2026-10-26T12:00:00Z')
 test('reorganization is superadmin-only, changes the week, preserves days and history, and clears manual choices and swaps', () => {
   const dir = mkdtempSync(join(tmpdir(), 'reorganize-'))
   const previousPath = process.env.SQLITE_PATH

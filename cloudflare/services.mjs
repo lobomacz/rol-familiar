@@ -1,3 +1,4 @@
+import { automaticLock } from '../server/week-locks.mjs'
 import { reorganizedUsers, reorganizationWrites } from '../server/reorganization.mjs'
 import { randomInt } from 'node:crypto'
 import { weekRange } from '../server/roles.mjs'
@@ -6,17 +7,18 @@ import { canChangeUserRole } from '../src/helpers/user-role-policy.js'
 
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }) }
 const addDays = (date, count) => { const value = new Date(`${date}T12:00:00Z`); value.setUTCDate(value.getUTCDate() + count); return value.toISOString().slice(0, 10) }
-export async function listWeekStarting(db, start) {
+export async function listWeekStarting(db, start, now) {
   const end = addDays(start, 6)
   const roles = await db.prepare(`SELECT r.*, a.nombre || ' ' || a.apellido AS assigned_name,
     b.nombre || ' ' || b.apellido AS replacement_name FROM roles r
     JOIN users a ON a.id = r.assigned_user LEFT JOIN users b ON b.id = r.replace_user
     WHERE r.date BETWEEN ? AND ? ORDER BY r.date, r.id`).all(start, end)
-  return { start, end, roles }
+  return { start, end, roles, lock: start === weekRange(0, now).start ? await weekLock(db, start, now) : await db.prepare('SELECT * FROM week_locks WHERE week_start = ?').get(start) || null }
 }
-export const listWeek = (db, offset, now) => listWeekStarting(db, weekRange(offset, now).start)
+export const listWeek = (db, offset, now) => listWeekStarting(db, weekRange(offset, now).start, now)
 export async function ensureCurrentWeek(db, now) {
   const range = weekRange(0, now)
+  const lock = await weekLock(db, range.start, now)
   let generationBlocked = null
   const users = await db.prepare("SELECT id FROM users WHERE activo = 1 AND rol_usuario IN ('usuario', 'admin')").all()
   const eligible = new Set(users.map(user => user.id))
@@ -27,7 +29,7 @@ export async function ensureCurrentWeek(db, now) {
   const invalid = !existing.some(role => role.manually_assigned) && (users.length < 2 || missing || existing.some((role, index) => !eligible.has(role.assigned_user)
     || (role.rol_switched && !eligible.has(role.replace_user)) || role.assigned_user === (index ? existing[index - 1].assigned_user : previousUser)))
   const writes = []
-  if (existing.length && invalid) {
+  if (!lock && existing.length && invalid) {
     writes.push(['DELETE FROM roles WHERE date BETWEEN ? AND ?', [range.start, range.end]])
     for (const id of new Set(existing.map(role => role.assigned_user))) writes.push([
       'UPDATE users SET ultimo_rol = (SELECT max(date) FROM roles WHERE assigned_user = users.id) WHERE id = ? AND ultimo_rol BETWEEN ? AND ?', [id, range.start, range.end],
@@ -120,7 +122,7 @@ function canComplete(note, user, today, role) {
 export async function listNotes(db, user, now) {
   const today = todayInManagua(now)
   const notes = await db.prepare(`SELECT n.*, u.nombre || ' ' || u.apellido AS assigned_name FROM notes n
-    JOIN users u ON u.id = n.assigned_user ORDER BY n.date DESC, n.id DESC`).all()
+    JOIN users u ON u.id = n.assigned_user WHERE NOT EXISTS (SELECT 1 FROM deleted_notes d WHERE d.note_id = n.id) ORDER BY n.date DESC, n.id DESC`).all()
   const entries = await db.prepare(`SELECT e.*, u.nombre || ' ' || u.apellido AS author_name FROM note_entries e
     JOIN users u ON u.id = e.author_id ORDER BY e.id`).all()
   const roles = await db.prepare('SELECT date, assigned_user, replace_user, rol_switched FROM roles WHERE date >= ?').all(today)
@@ -128,7 +130,7 @@ export async function listNotes(db, user, now) {
   const byNote = new Map()
   for (const entry of entries) { if (!byNote.has(entry.note_id)) byNote.set(entry.note_id, []); byNote.get(entry.note_id).push(entry) }
   return { today, pendingCount: notes.filter(note => !note.completed_at && note.date < today).length,
-    notes: notes.map(note => ({ ...note, overdue: !note.completed_at && note.date < today,
+    notes: notes.map(note => ({ ...note, canDelete: user.rol_usuario === 'superadmin', overdue: !note.completed_at && note.date < today,
       canComplete: canComplete(note, user, today, byDate.get(note.date)), entries: byNote.get(note.id) || [] })) }
 }
 function textValue(data) {
@@ -136,7 +138,7 @@ function textValue(data) {
   return data.text.trim()
 }
 async function getNote(db, id) {
-  const note = await db.prepare('SELECT * FROM notes WHERE id = ?').get(id)
+  const note = await db.prepare('SELECT * FROM notes WHERE id = ? AND NOT EXISTS (SELECT 1 FROM deleted_notes d WHERE d.note_id = notes.id)').get(id)
   if (!note) fail(404, 'Nota no encontrada')
   if (note.completed_at) fail(409, 'La nota está completa y no se puede modificar')
   return note
@@ -148,7 +150,7 @@ export async function createNote(db, user, data) {
   if (!role) fail(400, 'Seleccione un día con una asignación existente')
   if (data.parent_id != null) {
     if (!Number.isSafeInteger(data.parent_id)) fail(400, 'Nota de origen inválida')
-    const parent = await db.prepare('SELECT completed_at FROM notes WHERE id = ?').get(data.parent_id)
+    const parent = await db.prepare('SELECT completed_at FROM notes WHERE id = ? AND NOT EXISTS (SELECT 1 FROM deleted_notes d WHERE d.note_id = notes.id)').get(data.parent_id)
     if (!parent) fail(404, 'Nota de origen no encontrada')
     if (!parent.completed_at) fail(409, 'Solo se pueden derivar notas completas')
   }
@@ -173,14 +175,16 @@ export async function completeNote(db, user, id, now) {
 }
 export async function clearPendingNotes(db, user, now) {
   if (!admin(user)) fail(403, 'Solo un administrador puede limpiar las notificaciones')
-  const result = await db.prepare("UPDATE notes SET completed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), completed_by = ? WHERE completed_at IS NULL AND date < ?").run(user.id, todayInManagua(now))
+  const result = await db.prepare("UPDATE notes SET completed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), completed_by = ? WHERE completed_at IS NULL AND date < ? AND NOT EXISTS (SELECT 1 FROM deleted_notes d WHERE d.note_id = notes.id)").run(user.id, todayInManagua(now))
   return { clearedCount: Number(result.changes) }
 }
 
 export async function reassignDay(db, actorId, roleId, data, now) {
   const range = weekRange(0, now)
   const actor = await db.prepare('SELECT rol_usuario FROM users WHERE id = ?').get(actorId)
-  if (actor?.rol_usuario !== 'superadmin') fail(403, 'Solo un superadmin puede cambiar la asignación')
+  if (!['admin', 'superadmin'].includes(actor?.rol_usuario)) fail(403, 'No puede cambiar la asignación')
+  const lock = await weekLock(db, range.start, now)
+  if (actor.rol_usuario === 'admin' && lock) fail(409, 'La semana está cerrada')
   const role = await db.prepare('SELECT * FROM roles WHERE id = ?').get(roleId)
   if (!role) fail(404, 'Asignación no encontrada')
   if (role.date < range.start || role.date > range.end) fail(403, 'Solo puede cambiar asignaciones de la semana actual')
@@ -208,6 +212,7 @@ export async function reassignDay(db, actorId, roleId, data, now) {
 export async function reorganizeWeek(db, actorId, now) {
   if ((await db.prepare('SELECT rol_usuario FROM users WHERE id = ?').get(actorId))?.rol_usuario !== 'superadmin')
     fail(403, 'Solo un superadmin puede reorganizar la semana')
+  if (await weekLock(db, weekRange(0, now).start, now)) fail(409, 'La semana está cerrada y no se puede reorganizar')
   const range = weekRange(0, now)
   const existing = (await listWeek(db, 0, now)).roles
   const users = await db.prepare("SELECT id FROM users WHERE activo = 1 AND rol_usuario IN ('usuario', 'admin')").all()
@@ -215,4 +220,29 @@ export async function reorganizeWeek(db, actorId, now) {
   const assignments = reorganizedUsers(users, previousUser, existing)
   await db.atomic(reorganizationWrites(range, existing, assignments))
   return listWeek(db, 0, now)
+}
+
+export async function deleteNote(db, user, id) {
+  if (user.rol_usuario !== 'superadmin') fail(403, 'Solo un superadmin puede eliminar notas')
+  if (!await db.prepare('SELECT id FROM notes WHERE id = ?').get(id)) fail(404, 'Nota no encontrada')
+  await db.prepare("INSERT OR IGNORE INTO deleted_notes VALUES (?, ?, ?)").run(id, user.id, new Date().toISOString())
+  return { ok: true }
+}
+
+export async function weekLock(db, start, now) {
+  const at = automaticLock(start, now)
+  let lock = await db.prepare('SELECT * FROM week_locks WHERE week_start = ?').get(start)
+  if (!lock && at) {
+    await db.prepare("INSERT OR IGNORE INTO week_locks VALUES (?, 'automatic', NULL, 'Sistema', ?)").run(start, at)
+    lock = await db.prepare('SELECT * FROM week_locks WHERE week_start = ?').get(start)
+  }
+  return lock || null
+}
+export async function lockWeek(db, actorId, now = new Date()) {
+  const actor = await db.prepare('SELECT rol_usuario, nombre, apellido FROM users WHERE id = ?').get(actorId)
+  if (!['admin', 'superadmin'].includes(actor?.rol_usuario)) fail(403, 'Solo un administrador puede cerrar la semana')
+  const { start } = weekRange(0, now)
+  await weekLock(db, start, now)
+  await db.prepare("INSERT OR IGNORE INTO week_locks VALUES (?, 'manual', ?, ?, ?)").run(start, actorId, `${actor.nombre} ${actor.apellido}`, now.toISOString())
+  return { lock: start === weekRange(0, now).start ? await weekLock(db, start, now) : await db.prepare('SELECT * FROM week_locks WHERE week_start = ?').get(start) || null }
 }
