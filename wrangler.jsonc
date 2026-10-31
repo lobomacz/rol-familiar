@@ -7,7 +7,7 @@
   "d1_databases": [{
     "binding": "DB",
     "database_name": "rol-familiar",
-    "database_id": "00000000-0000-0000-0000-000000000000",
+    "database_id": "5c1955b5-fbb5-4051-adb3-307a9eea0741",
     "migrations_dir": "migrations"
   }],
   "env": {
@@ -15,7 +15,7 @@
       "d1_databases": [{
         "binding": "DB",
         "database_name": "rol-familiar-preview",
-        "database_id": "00000000-0000-0000-0000-000000000001",
+        "database_id": "c66d1cb6-56cd-46a0-825c-e8df5687516d",
         "migrations_dir": "migrations"
       }]
     }
