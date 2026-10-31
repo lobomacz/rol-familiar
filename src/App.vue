@@ -1,10 +1,10 @@
 <script setup>
-import { onMounted, onBeforeUnmount, reactive, ref } from 'vue'
+import { onMounted, onBeforeUnmount, reactive, ref, defineAsyncComponent } from 'vue'
 import useVuelidate from '@vuelidate/core'
 import { required, helpers } from '@vuelidate/validators'
 import PasswordChangeDialog from './components/PasswordChangeDialog.vue'
-import MainPage from './pages/MainPage.vue'
-import NewUserPage from './pages/NewUserPage.vue'
+const MainPage = defineAsyncComponent(() => import('./pages/MainPage.vue'))
+const NewUserPage = defineAsyncComponent(() => import('./pages/NewUserPage.vue'))
 
 const user = ref(null)
 const page = ref(location.pathname)

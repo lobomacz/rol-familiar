@@ -131,3 +131,37 @@ test('single assigned day is selected automatically and users without days remai
     assert.ok(!replacementOptions(db, 3, 3, now).users.some(user => [1, 6].includes(user.id)))
   } finally { db.close() }
 })
+
+test('superadmins can disable either side of any current-week swap without affecting unrelated swaps', () => {
+  for (const roleId of [1, 2]) {
+    const db = fixture()
+    try {
+      switchAssignment(db, 1, 1, enable(2), now)
+      switchAssignment(db, 3, 3, enable(6), now)
+      db.exec("UPDATE roles SET replace_user = 2, rol_switched = 1 WHERE id = 8; INSERT INTO roles VALUES (9, '2026-11-02', 1, 2, 1)")
+      const before = snapshot(db)
+      assert.throws(() => switchAssignment(db, roleId, 5, { rol_switched: false, expected_replace_user: 999 }, now), rejectStatus(409))
+      assert.throws(() => switchAssignment(db, roleId, 6, { rol_switched: false }, now), rejectStatus(403))
+      for (const id of [8, 9]) assert.throws(() => switchAssignment(db, id, 5, { rol_switched: false }, now), rejectStatus(403))
+      assert.throws(() => switchAssignment(db, 4, 5, enable(3), now), rejectStatus(403))
+      assert.throws(() => replacementOptions(db, 4, 5, now), rejectStatus(403))
+      assert.deepEqual(snapshot(db), before)
+      const expected = before.find(role => role.id === roleId).replace_user
+      const week = switchAssignment(db, roleId, 5, { rol_switched: false, expected_replace_user: expected }, now)
+      for (const id of [1, 2]) {
+        assert.equal(week.roles.find(role => role.id === id).replace_user, null)
+        assert.equal(week.roles.find(role => role.id === id).rol_switched, 0)
+      }
+      assert.deepEqual(snapshot(db).filter(role => ![1, 2].includes(role.id)), before.filter(role => ![1, 2].includes(role.id)))
+    } finally { db.close() }
+  }
+})
+test('superadmins can disable a replacement without a reciprocal day', () => {
+  const db = fixture()
+  try {
+    const original = snapshot(db)
+    switchAssignment(db, 1, 1, enable(6), now)
+    switchAssignment(db, 1, 5, { rol_switched: false, expected_replace_user: 6 }, now)
+    assert.deepEqual(snapshot(db), original)
+  } finally { db.close() }
+})

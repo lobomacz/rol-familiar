@@ -48,6 +48,8 @@ export function openDatabase() {
       rol_switched INTEGER DEFAULT 0 CHECK(rol_switched IS NULL OR rol_switched IN (0, 1))
     );
   `)
+  if (!db.prepare('PRAGMA table_info(roles)').all().some(column => column.name === 'manually_assigned'))
+    db.exec('ALTER TABLE roles ADD COLUMN manually_assigned INTEGER NOT NULL DEFAULT 0 CHECK(manually_assigned IN (0, 1))')
   db.exec('CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY)')
   db.exec('BEGIN IMMEDIATE')
   try {

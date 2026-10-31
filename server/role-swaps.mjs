@@ -1,12 +1,13 @@
 import { listWeek, weekRange } from './roles.mjs'
 
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }) }
-function ownedCurrentRole(db, roleId, userId, range) {
+function ownedCurrentRole(db, roleId, userId, range, allowSuperadmin = false) {
   const role = db.prepare('SELECT * FROM roles WHERE id = ?').get(roleId)
   if (!role) fail(404, 'Asignación no encontrada')
-  if (role.assigned_user !== userId) fail(403, 'Solo puede modificar sus propias asignaciones')
   if (role.date < range.start || role.date > range.end) fail(403, 'Solo puede modificar la semana actual')
   const user = db.prepare('SELECT activo, rol_usuario FROM users WHERE id = ?').get(userId)
+  if (allowSuperadmin && user?.rol_usuario === 'superadmin') return role
+  if (role.assigned_user !== userId) fail(403, 'Solo puede modificar sus propias asignaciones')
   if (!user || user.activo !== 1 || !['usuario', 'admin'].includes(user.rol_usuario)) fail(403, 'No puede modificar esta asignación')
   return role
 }
@@ -35,7 +36,7 @@ export function switchAssignment(db, roleId, userId, data, now) {
   const range = weekRange(0, now)
   db.exec('BEGIN IMMEDIATE')
   try {
-    const role = ownedCurrentRole(db, roleId, userId, range)
+    const role = ownedCurrentRole(db, roleId, userId, range, !data.rol_switched)
     if (data.rol_switched) {
       const replacement = availableReplacements(db, role, range).find(user => user.id === data.replace_user)
       if (!replacement) fail(409, 'El sustituto ya no está disponible o existe una sustitución pendiente. Actualice las asignaciones.')
@@ -48,10 +49,10 @@ export function switchAssignment(db, roleId, userId, data, now) {
     } else if (Object.hasOwn(data, 'expected_replace_user') && data.expected_replace_user !== role.replace_user) {
       fail(409, 'La sustitución ha cambiado. Actualice las asignaciones antes de continuar.')
     } else if (role.replace_user) {
-      // Both owners may undo the pair, including all reciprocal days for the replacement.
+      // Owners and superadmins may undo the pair, including legacy reciprocal days.
       db.prepare(`UPDATE roles SET rol_switched = 0, replace_user = NULL
         WHERE date BETWEEN ? AND ? AND ((assigned_user = ? AND replace_user = ?) OR (assigned_user = ? AND replace_user = ?))`)
-        .run(range.start, range.end, userId, role.replace_user, role.replace_user, userId)
+        .run(range.start, range.end, role.assigned_user, role.replace_user, role.replace_user, role.assigned_user)
     } else {
       db.prepare('UPDATE roles SET rol_switched = 0, replace_user = NULL WHERE id = ?').run(role.id)
     }

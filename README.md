@@ -1,5 +1,7 @@
 # Rol Familiar
 
+Para desplegar la aplicación completa en Cloudflare Pages con Functions y D1, consulte [la guía de configuración y migración](docs/CLOUDFLARE.md). Incluye todas las variables, bindings, requisitos del plan, datos existentes y comandos de prueba.
+
 Vue SPA with Vuetify, Vuelidate and a Node SQLite API. Requires Docker Compose, or Node 24.6+ for local development.
 
 ## Docker development
@@ -84,3 +86,11 @@ Durante la fecha asignada o antes, el usuario asignado al día o su sustituto ac
 Al iniciar la API, la migración idempotente `notes-and-append-only-entries-v1` crea `notes`, `note_entries`, índices y disparadores que preservan las entradas y bloquean las notas completas. No requiere comandos manuales de migración.
 
 API autenticada: `GET /api/notes`, `POST /api/notes` (`date`, `text`, `priority`, `parent_id` opcional), `POST /api/notes/:id/entries` (`text`) y `POST /api/notes/:id/complete` y `POST /api/notes/clear-pending` (solo admin y superadmin). Las autorizaciones se verifican en el servidor.
+
+### Reasignación por superadmin
+
+En la semana actual, el botón de cambiar usuario permite al superadmin reasignar cualquier día a un usuario activo con rol `usuario` o `admin`. Si el día participa en una sustitución, se cancela el intercambio vinculado y se restaura su parte recíproca. Las notas existentes conservan sus datos e historial. El servidor rechaza solicitudes de otros roles, fechas fuera de la semana actual y selecciones desactualizadas.
+
+`PATCH /api/roles/:id/assignment` recibe `assigned_user`, `expected_assigned_user` y `expected_replace_user`. La columna `roles.manually_assigned` se agrega automáticamente al iniciar la API. Una semana con asignaciones manuales se conserva al recargar, aunque ya no cumpla las reglas de distribución automática.
+
+El superadmin también puede desactivar cualquier interruptor de sustitución activo en la semana actual. Se restauran ambas partes del intercambio, sin afectar otros intercambios ni semanas anteriores o futuras. Esta autorización permite cancelar sustituciones; la selección de nuevos sustitutos sigue reservada al propietario de la asignación.

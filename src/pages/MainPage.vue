@@ -51,6 +51,7 @@
             <v-list-item-title class="role-date">{{ item.rol_switched ? item.replacement_name : item.assigned_name }}</v-list-item-title>
             <v-list-item-subtitle v-if="item.rol_switched" class="role-person">En sustitucion de {{ item.assigned_name }}</v-list-item-subtitle>
             <template #append>
+              <v-btn v-if="activeTab === 'actual' && user.rol_usuario === 'superadmin'" icon="mdi-account-edit" variant="text" color="primary" :aria-label="`Cambiar usuario asignado al ${item.date}`" :disabled="savingSwap" @click="openAssignment(item)" />
               <v-btn v-if="activeTab === 'actual'" icon="mdi-square-edit-outline" variant="text" color="primary" :aria-label="`Ver notas del ${item.date}`" @click="openDayNotes(item)" />
               <v-switch class="ml-3" :model-value="Boolean(item.rol_switched)" :disabled="!canSwitch(item) || savingSwap || loadingRoles" :loading="savingRoleId === item.id" color="primary" inset hide-details density="compact" :aria-label="`Sustituir la asignación del ${item.date} de ${item.assigned_name}`" @update:model-value="toggleReplacement(item, $event)" />
             </template>
@@ -84,6 +85,7 @@
       </nav>
 
     </div>
+    <AssignmentDialog v-if="user.rol_usuario === 'superadmin'" v-model="assignmentDialog" :role="assignmentRole" @saved="assignmentSaved" @unauthorized="emit('unauthorized')" />
     <v-dialog v-model="replacementDialog" max-width="480" :persistent="savingSwap" scrollable aria-labelledby="replacement-title" @after-leave="resetReplacement">
       <v-card rounded="xl">
         <v-card-title id="replacement-title">Seleccionar sustituto</v-card-title>
@@ -116,6 +118,7 @@ import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import Notas from './Notas.vue'
 import DayNotesDialog from '../components/DayNotesDialog.vue'
 import PendingNotesDialog from '../components/PendingNotesDialog.vue'
+import AssignmentDialog from '../components/AssignmentDialog.vue'
 import Explore from './Explore.vue'
 import { useReplacementValidation } from '../helpers/replacement-validation.js'
 import { userDisplayName } from '../helpers/user-display.js'
@@ -123,6 +126,9 @@ import PasswordChangeDialog from '../components/PasswordChangeDialog.vue'
 const props = defineProps({ user: { type: Object, required: true }, loggingOut: Boolean, initialTab: String, initialExploreTab: String })
 const emit = defineEmits(['logout', 'new-user', 'unauthorized'])
 const canCreateUsers = computed(() => ['admin', 'superadmin'].includes(props.user.rol_usuario))
+const assignmentDialog = ref(false), assignmentRole = ref(null)
+function openAssignment(item) { assignmentRole.value = item; assignmentDialog.value = true }
+function assignmentSaved(week) { currentWeek.value = week; notesRevision.value++; loadPendingNotes() }
 const dayNotesDialog = ref(false), notesDate = ref('')
 function openDayNotes(item) { notesDate.value = item.date; dayNotesDialog.value = true }
 const pendingCount = ref(0), pendingOnly = ref(false)
@@ -181,7 +187,7 @@ watch(selectedReplacement, () => {
   replacementValidation.value.selectedReplacementDay.$reset()
 })
 const replacementValidation = useReplacementValidation(selectedReplacement, selectedReplacementDay, replacementDays)
-const canSwitch = item => activeTab.value === 'actual' && item.assigned_user === props.user.id && item.date >= currentWeek.value.start && item.date <= currentWeek.value.end
+const canSwitch = item => activeTab.value === 'actual' && (props.user.rol_usuario === 'superadmin' ? Boolean(item.rol_switched) : item.assigned_user === props.user.id) && item.date >= currentWeek.value.start && item.date <= currentWeek.value.end
 function changeWeekTab(value) {
   exploredWeek.value = null
   activeTab.value = value
@@ -211,7 +217,7 @@ function resetReplacement() {
   replacementValidation.value.$reset()
 }
 async function toggleReplacement(item, enabled) {
-  if (!canSwitch(item) || savingSwap.value) return
+  if (!canSwitch(item) || savingSwap.value || (enabled && props.user.rol_usuario === 'superadmin')) return
   if (!enabled) {
     savingSwap.value = true; savingRoleId.value = item.id; error.value = ''
     try { currentWeek.value = await request(`/api/roles/${item.id}/switch`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rol_switched: false, expected_replace_user: item.replace_user }) }) }

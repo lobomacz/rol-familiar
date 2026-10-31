@@ -12,17 +12,28 @@
     "dev:api": "node --watch server/index.mjs",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0 --port 5174 --strictPort",
-    "test": "node --test",
-    "user:create": "node scripts/create-user.mjs"
+    "test": "node --test server/*.test.mjs src/helpers/*.test.js",
+    "user:create": "node scripts/create-user.mjs",
+    "cf:dev": "npm run build && wrangler pages dev dist --port 8788",
+    "cf:build": "npm run build && wrangler pages functions build functions --outdir .cloudflare-build --compatibility-date=2026-10-30 --compatibility-flags=nodejs_compat",
+    "cf:migrate:local": "wrangler d1 migrations apply DB --local",
+    "cf:migrate:production": "wrangler d1 migrations apply DB --remote",
+    "cf:migrate:preview": "wrangler d1 migrations apply DB --remote --env preview",
+    "cf:deploy": "npm run build && wrangler pages deploy dist",
+    "cf:admin": "node scripts/cloudflare-admin.mjs",
+    "cf:export": "node scripts/export-d1.mjs",
+    "test:cloudflare": "npm run cf:build && node --test cloudflare/*.test.mjs"
   },
   "dependencies": {
-    "vue": "3.5.44",
-    "vuetify": "4.3.1",
     "@vuelidate/core": "2.0.3",
-    "@vuelidate/validators": "2.0.4"
+    "@vuelidate/validators": "2.0.4",
+    "vue": "3.5.44",
+    "vuetify": "4.3.1"
   },
   "devDependencies": {
+    "@vitejs/plugin-vue": "6.0.10",
+    "miniflare": "5.20261023.3-beta",
     "vite": "8.3.5",
-    "@vitejs/plugin-vue": "6.0.10"
+    "wrangler": "4.156.0"
   }
 }

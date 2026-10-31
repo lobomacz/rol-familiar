@@ -1,3 +1,4 @@
+import { reassignDay } from './reassignments.mjs'
 import { changeUserRole } from './user-roles.mjs'
 import { listNotes, createNote, appendNote, completeNote, clearPendingNotes } from './notes.mjs'
 import { genericPasswordCredentials } from './password-reset.mjs'
@@ -149,6 +150,8 @@ const server = createServer(async (req, res) => {
       if (!data.activo) db.prepare('DELETE FROM sessions WHERE user_id = ?').run(target.id)
       return send(200, { id: target.id, activo: data.activo })
     }
+    const assignmentMatch = url.pathname.match(/^\/api\/roles\/(\d+)\/assignment$/)
+    if (req.method === 'PATCH' && assignmentMatch) return send(200, reassignDay(db, session.id, Number(assignmentMatch[1]), await readBody(req)))
     const replacementMatch = url.pathname.match(/^\/api\/roles\/(\d+)\/replacements$/)
     if (req.method === 'GET' && replacementMatch) return send(200, replacementOptions(db, Number(replacementMatch[1]), session.id))
     const switchMatch = url.pathname.match(/^\/api\/roles\/(\d+)\/switch$/)

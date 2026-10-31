@@ -1,5 +1,6 @@
 import { h } from 'vue'
 const paths = {
+  'mdi-account-edit': 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8M4 20v-2c0-3 5-4 8-4l-4 4v2H4m16-8 3 3-7 7h-3v-3l7-7m0 2-5 5v1h1l5-5-1-1',
   'mdi-bell': 'M12 22a2 2 0 0 0 2-2h-4a2 2 0 0 0 2 2m6-6v-5c0-3.1-1.6-5.6-4.5-6.3V4a1.5 1.5 0 0 0-3 0v.7C7.6 5.4 6 7.9 6 11v5l-2 2v1h16v-1z',
   'mdi-alert': 'M1 21h22L12 2 1 21m12-3h-2v-2h2v2m0-4h-2v-4h2v4',
 

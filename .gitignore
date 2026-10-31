@@ -6,3 +6,9 @@ data/
 !.env.example
 *.log
 .DS_Store
+
+.wrangler/
+.cloudflare-build/
+.dev.vars
+.dev.vars.*
+*.private.sql

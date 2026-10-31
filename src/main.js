@@ -1,6 +1,7 @@
 import { createApp } from 'vue'
 import { createVuetify } from 'vuetify'
-import * as components from 'vuetify/components'
+import { VAlert, VApp, VAvatar, VBadge, VBtn, VCard, VCardActions, VCardText, VCardTitle, VChip, VContainer, VDialog, VForm, VIcon, VList, VListItem, VListItemSubtitle, VListItemTitle, VMain, VProgressCircular, VProgressLinear, VSelect, VSheet, VSpacer, VSwitch, VTab, VTabs, VTextField, VTextarea, VToolbar, VToolbarTitle } from 'vuetify/components'
+const components = { VAlert, VApp, VAvatar, VBadge, VBtn, VCard, VCardActions, VCardText, VCardTitle, VChip, VContainer, VDialog, VForm, VIcon, VList, VListItem, VListItemSubtitle, VListItemTitle, VMain, VProgressCircular, VProgressLinear, VSelect, VSheet, VSpacer, VSwitch, VTab, VTabs, VTextField, VTextarea, VToolbar, VToolbarTitle }
 import * as directives from 'vuetify/directives'
 import 'vuetify/styles'
 import App from './App.vue'

@@ -5,3 +5,9 @@ data
 .env
 .env.*
 *.log
+
+.wrangler
+.cloudflare-build
+.dev.vars
+.dev.vars.*
+*.private.sql

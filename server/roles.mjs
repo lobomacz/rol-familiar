@@ -20,15 +20,15 @@ export function ensureCurrentWeek(db, now) {
   try {
     const users = db.prepare("SELECT id FROM users WHERE activo = 1 AND rol_usuario IN ('usuario', 'admin')").all()
     const eligible = new Set(users.map(user => user.id))
-    let existing = db.prepare('SELECT assigned_user, replace_user, rol_switched, date FROM roles WHERE date BETWEEN ? AND ? ORDER BY date').all(range.start, range.end)
+    let existing = db.prepare('SELECT assigned_user, replace_user, rol_switched, date, manually_assigned FROM roles WHERE date BETWEEN ? AND ? ORDER BY date').all(range.start, range.end)
     const previousUser = db.prepare('SELECT assigned_user FROM roles WHERE date = ?').get(addDays(range.start, -1))?.assigned_user
     const assignedUsers = new Set(existing.map(role => role.assigned_user))
     // A complete week must include every eligible participant when all can fit.
     const missingParticipant = existing.length === 7 && users.length <= 7 && users.some(user => !assignedUsers.has(user.id))
-    const invalid = users.length < 2 || missingParticipant || existing.some((role, index) =>
+    const invalid = !existing.some(role => role.manually_assigned) && (users.length < 2 || missingParticipant || existing.some((role, index) =>
       !eligible.has(role.assigned_user) ||
       (role.rol_switched && !eligible.has(role.replace_user)) ||
-      role.assigned_user === (index ? existing[index - 1].assigned_user : previousUser))
+      role.assigned_user === (index ? existing[index - 1].assigned_user : previousUser)))
     if (existing.length && invalid) {
       const affected = [...new Set(existing.map(role => role.assigned_user))]
       db.prepare('DELETE FROM roles WHERE date BETWEEN ? AND ?').run(range.start, range.end)
