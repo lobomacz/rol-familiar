@@ -26,6 +26,7 @@
           <v-btn v-if="activeTab === 'actual' && canCreateUsers" color="primary" variant="tonal" :disabled="loadingRoles || savingSwap || !!currentWeek.lock" @click="reorganizeDialog = true">Reorganizar</v-btn>
           <v-btn v-if="activeTab === 'actual' && canCreateUsers && !currentWeek.lock" color="primary" :disabled="loadingRoles || savingSwap" @click="lockDialog = true">Cerrar semana</v-btn>
           <p v-if="activeTab === 'actual' && currentWeek.lock" class="text-body-2" role="status">Semana cerrada · {{ currentWeek.lock.author }} · {{ new Date(currentWeek.lock.locked_at).toLocaleString('es-NI', { timeZone: 'America/Managua' }) }}</p>
+          <v-btn v-if="activeTab === 'actual' && !currentWeek.lock" icon="mdi-refresh" color="primary" variant="tonal" aria-label="Actualizar asignaciones de la semana actual" title="Actualizar asignaciones" :loading="loadingRoles" :disabled="loadingRoles || savingSwap" @click="refreshCurrentWeek" />
           <v-chip color="primary" variant="tonal" size="small">{{ selectedRoles.length }} asignaciones</v-chip>
         </div>
         <v-tabs :model-value="activeTab" :disabled="loadingRoles || savingSwap" @update:model-value="changeWeekTab" color="primary" grow hide-slider height="56" class="week-tabs" aria-label="Seleccionar semana">
@@ -276,6 +277,18 @@ async function reorganize() {
     notesRevision.value++; await loadPendingNotes()
   } catch (err) { error.value = err.message }
   finally { savingSwap.value = false; reorganizeDialog.value = false }
+}
+async function refreshCurrentWeek() {
+  if (activeTab.value !== 'actual' || currentWeek.value.lock || loadingRoles.value || savingSwap.value) return
+  const requestId = ++weekRequest
+  loadingRoles.value = true; error.value = ''
+  try {
+    const week = await request('/api/roles')
+    if (requestId !== weekRequest || bottomNav.value !== 'roles') return
+    currentWeek.value = week
+    await loadPendingNotes()
+  } catch (err) { if (requestId === weekRequest) error.value = err.message }
+  finally { if (requestId === weekRequest) loadingRoles.value = false }
 }
 async function loadRoles() {
   loadingRoles.value = true; error.value = ''
