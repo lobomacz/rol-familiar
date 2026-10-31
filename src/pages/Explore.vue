@@ -214,7 +214,7 @@ onMounted(load)
 .month-search :deep(input) { text-transform: capitalize; }
 .explore-tabs { flex: 0 0 auto; background: #edf3f0; border-radius: 12px; }
 .explore-tabs :deep(.v-tab) { text-transform: none; letter-spacing: 0; }
-.wrap-text { white-space: normal; overflow-wrap: anywhere; -webkit-line-clamp: unset; }
+.wrap-text { white-space: normal; overflow-wrap: anywhere; line-clamp: unset; -webkit-line-clamp: unset; }
 .user-list { flex: 0 0 auto; align-content: start; display: grid; gap: 12px; padding: 0; overflow: visible; }
 .user-item { padding: 16px; border: 1px solid #e4ebe7; background: white; }
 .week-list { flex: 0 0 auto; display: grid; gap: 12px; padding: 0; overflow: visible; }

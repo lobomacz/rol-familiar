@@ -54,7 +54,7 @@
             <template #append>
               <v-btn v-if="activeTab === 'actual' && user.rol_usuario === 'superadmin'" icon="mdi-account-edit" variant="text" color="primary" :aria-label="`Cambiar usuario asignado al ${item.date}`" :disabled="savingSwap" @click="openAssignment(item)" />
               <v-btn icon variant="text" :color="dayNoteCount(item.date) ? 'blue' : undefined" :disabled="!dayNoteCount(item.date) || savingSwap" :aria-label="`Notas del ${item.date}: ${dayNoteCount(item.date)}`" @click="openDayNotes(item)">
-                <v-badge :model-value="dayNoteCount(item.date) > 0" :content="dayNoteCount(item.date)" color="blue" floating><v-icon icon="mdi-square-edit-outline" /></v-badge>
+                <v-badge :model-value="dayNoteCount(item.date) > 0" color="red" location="top left" dot floating><v-icon icon="mdi-square-edit-outline" :color="dayNoteCount(item.date) > 0 ? 'blue' : undefined" /></v-badge>
               </v-btn>
               <v-switch class="replacement-switch ml-3" label="Cambiar" :model-value="Boolean(item.rol_switched)" :disabled="!canSwitch(item) || savingSwap || loadingRoles" :loading="savingRoleId === item.id" color="primary" inset hide-details density="compact" :aria-label="`Sustituir la asignación del ${item.date} de ${item.assigned_name}`" @update:model-value="toggleReplacement(item, $event)" />
             </template>

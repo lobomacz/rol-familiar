@@ -72,5 +72,5 @@ watch(() => props.modelValue, open => {
 <style scoped>
 .pending-note { border: 1px solid #dfe7e2; }
 .note-title { white-space: normal; }
-.note-preview { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; white-space: pre-wrap; }
+.note-preview { display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; white-space: pre-wrap; }
 </style>
