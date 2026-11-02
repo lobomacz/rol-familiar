@@ -25,7 +25,7 @@
             <p class="month-label text-body-2 text-medium-emphasis mt-1">{{ currentMonthYear || 'Calendario familiar' }}</p>
           </div>
           <v-btn v-if="activeTab === 'actual' && canCreateUsers" color="primary" variant="tonal" :disabled="loadingRoles || savingSwap || !!currentWeek.lock" @click="reorganizeDialog = true">Reorganizar</v-btn>
-          <v-btn v-if="activeTab === 'actual' && canCreateUsers && !currentWeek.lock" color="primary" :disabled="loadingRoles || savingSwap" @click="lockDialog = true">Cerrar semana</v-btn>
+          <v-btn v-if="activeTab === 'actual' && canCreateUsers && !currentWeek.lock" color="primary" :disabled="loadingRoles || savingSwap" @click="openLockDialog">Cerrar semana</v-btn>
           <p v-if="activeTab === 'actual' && currentWeek.lock" class="text-body-2" role="status">Semana cerrada · {{ currentWeek.lock.author }} · {{ new Date(currentWeek.lock.locked_at).toLocaleString('es-NI', { timeZone: 'America/Managua' }) }}</p>
           <v-chip color="primary" variant="tonal" size="small">{{ selectedRoles.length }} asignaciones</v-chip>
         </div>
@@ -102,6 +102,20 @@
         <v-card-actions><v-btn :disabled="savingSwap" @click="reorganizeDialog = false">Cancelar</v-btn><v-spacer /><v-btn color="primary" :loading="savingSwap" @click="reorganize">Reorganizar</v-btn></v-card-actions>
       </v-card>
     </v-dialog>
+    <v-dialog v-model="lockDialog" max-width="480" :persistent="savingSwap" aria-labelledby="lock-title">
+      <v-card rounded="xl">
+        <v-card-title id="lock-title">Cerrar semana actual</v-card-title>
+        <v-card-text>
+          <p>¿Cerrar la distribución de la semana actual? Se conservarán las asignaciones y se bloquearán la reorganización automática y los cambios manuales de administradores. Los superadmins podrán seguir ajustando asignaciones.</p>
+          <v-alert v-if="lockError" type="error" variant="tonal" role="alert" class="mt-4">{{ lockError }}</v-alert>
+        </v-card-text>
+        <v-card-actions class="flex-wrap">
+          <v-btn :disabled="savingSwap" @click="lockDialog = false">Cancelar</v-btn>
+          <v-spacer />
+          <v-btn color="primary" :loading="savingSwap" :disabled="loadingRoles || savingSwap" @click="confirmWeekLock">Cerrar semana</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
     <AssignmentDialog v-if="canCreateUsers" v-model="assignmentDialog" :role="assignmentRole" @saved="assignmentSaved" @unauthorized="emit('unauthorized')" />
     <v-dialog v-model="replacementDialog" max-width="480" :persistent="savingSwap" scrollable aria-labelledby="replacement-title" @after-leave="resetReplacement">
       <v-card rounded="xl">
@@ -145,6 +159,21 @@ const props = defineProps({ user: { type: Object, required: true }, loggingOut: 
 const emit = defineEmits(['logout', 'new-user', 'unauthorized'])
 const canCreateUsers = computed(() => ['admin', 'superadmin'].includes(props.user.rol_usuario))
 const reorganizeDialog = ref(false)
+const lockDialog = ref(false), lockError = ref('')
+function openLockDialog() {
+  if (!canCreateUsers.value || activeTab.value !== 'actual' || currentWeek.value.lock || loadingRoles.value || savingSwap.value) return
+  lockError.value = ''; lockDialog.value = true
+}
+async function confirmWeekLock() {
+  if (!lockDialog.value || !canCreateUsers.value || activeTab.value !== 'actual' || currentWeek.value.lock || loadingRoles.value || savingSwap.value) return
+  savingSwap.value = true; lockError.value = ''
+  try {
+    const result = await request('/api/roles/lock', { method: 'POST' })
+    currentWeek.value = { ...currentWeek.value, lock: result.lock }
+    lockDialog.value = false
+  } catch (err) { lockError.value = err.message }
+  finally { savingSwap.value = false }
+}
 const assignmentDialog = ref(false), assignmentRole = ref(null)
 function openAssignment(item) { assignmentRole.value = item; assignmentDialog.value = true }
 function assignmentSaved(week) { currentWeek.value = week; notesRevision.value++; loadPendingNotes() }
