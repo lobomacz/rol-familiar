@@ -181,7 +181,7 @@ onMounted(load)
       <v-list v-if="filteredUsers.length" class="user-list" bg-color="transparent" aria-label="Usuarios registrados" :aria-busy="refreshingUsers">
         <v-list-item v-for="person in filteredUsers" :key="person.id" class="user-item" rounded="lg">
           <v-list-item-title class="wrap-text font-weight-bold">
-            <v-badge :model-value="user.rol_usuario === 'superadmin' && Boolean(person.logged_in)" dot location="top right" label="Sesión iniciada" class="session-name">
+            <v-badge :model-value="user.rol_usuario === 'superadmin' && Boolean(person.logged_in)" dot location="top right" color="success" label="Sesión iniciada">
               <span>{{ userDisplayName(person) }}</span>
             </v-badge>
           </v-list-item-title>
