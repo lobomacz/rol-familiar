@@ -14,7 +14,7 @@ test('any member can create notes on all seven current-week days, including past
   let db
   try {
     db = openDatabase()
-    for (const id of [1, 2]) db.prepare('INSERT INTO users(id, username, password_hash, nombre, apellido) VALUES (?, ?, ?, ?, ?)')
+    for (const id of [1, 2, 3, 4, 5, 6, 7]) db.prepare('INSERT INTO users(id, username, password_hash, nombre, apellido) VALUES (?, ?, ?, ?, ?)')
       .run(id, `member${id}`, 'unused', `Member${id}`, 'Family')
     const now = new Date('2026-10-31T18:00:00Z')
     const week = ensureCurrentWeek(db, now)

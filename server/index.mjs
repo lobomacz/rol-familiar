@@ -47,7 +47,7 @@ const server = createServer(async (req, res) => {
     }
     db.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(Date.now())
     const token = req.headers.cookie?.split(';').map(value => value.trim()).find(value => value.startsWith('session='))?.slice(8) || ''
-    const session = db.prepare(`SELECT users.id, users.username, users.nombre, users.apellido, users.ultimo_rol, users.activo, users.rol_usuario, users.password_reset_at FROM sessions JOIN users ON users.id = sessions.user_id WHERE token_hash = ? AND expires_at > ? AND (users.rol_usuario = 'superadmin' OR users.activo = 1)`).get(tokenHash(token), Date.now())
+    const session = db.prepare(`SELECT users.id, users.username, users.nombre, users.apellido, users.ultimo_rol, users.activo, users.rol_usuario, users.password_reset_at, users.last_login_at FROM sessions JOIN users ON users.id = sessions.user_id WHERE token_hash = ? AND expires_at > ? AND (users.rol_usuario = 'superadmin' OR users.activo = 1)`).get(tokenHash(token), Date.now())
     if (req.method === 'POST' && req.url === '/api/auth/login') {
       const key = req.socket.remoteAddress
       const now = Date.now()
@@ -65,12 +65,18 @@ const server = createServer(async (req, res) => {
         return send(401, { error: failureMessage })
       }
       failures.delete(key)
-      if (token) db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(tokenHash(token))
       const nextToken = newToken()
-      db.prepare('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)').run(tokenHash(nextToken), user.id, now + sessionDuration)
+      const lastLoginAt = new Date().toISOString()
+      db.exec('BEGIN IMMEDIATE')
+      try {
+        if (token) db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(tokenHash(token))
+        db.prepare('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)').run(tokenHash(nextToken), user.id, now + sessionDuration)
+        db.prepare('UPDATE users SET last_login_at = ? WHERE id = ?').run(lastLoginAt, user.id)
+        db.exec('COMMIT')
+      } catch (error) { db.exec('ROLLBACK'); throw error }
       res.setHeader('Set-Cookie', cookie(nextToken, sessionDuration / 1000))
       const { password_hash, ...profile } = user
-      return send(200, { user: profile })
+      return send(200, { user: { ...profile, last_login_at: lastLoginAt } })
     }
     if (req.method === 'POST' && req.url === '/api/auth/logout') {
       db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(tokenHash(token))
@@ -125,7 +131,12 @@ const server = createServer(async (req, res) => {
     }
     if (req.method === 'GET' && url.pathname === '/api/users') {
       if (!canManageUsers) return send(403, { error: 'No tiene permiso para consultar usuarios' })
-      return send(200, { users: db.prepare("SELECT id, username, nombre, apellido, rol_usuario, ultimo_rol, activo, password_reset_at FROM users WHERE lower(username) != 'admin' ORDER BY nombre, apellido, id").all() })
+      const presenceColumn = session.rol_usuario === 'superadmin'
+        ? ', last_login_at, CASE WHEN activo = 1 AND EXISTS (SELECT 1 FROM sessions WHERE sessions.user_id = users.id AND expires_at > ?) THEN 1 ELSE 0 END AS logged_in'
+        : ''
+      const query = db.prepare(`SELECT id, username, nombre, apellido, rol_usuario, ultimo_rol, activo, password_reset_at${presenceColumn} FROM users WHERE lower(username) != 'admin' ORDER BY nombre, apellido, id`)
+      const args = session.rol_usuario === 'superadmin' ? [Date.now()] : []
+      return send(200, { users: query.all(...args) })
     }
     const userRoleMatch = url.pathname.match(/^\/api\/users\/(\d+)\/role$/)
     if (req.method === 'PATCH' && userRoleMatch) {

@@ -1,6 +1,6 @@
 import { automaticLock } from '../server/week-locks.mjs'
 import { reorganizedUsers, reorganizationWrites } from '../server/reorganization.mjs'
-import { randomInt } from 'node:crypto'
+import { assignmentSchedule, hasAssignmentViolation, minimumWeeklyParticipants, monthlyCoverage } from '../server/assignment-schedule.mjs'
 import { weekRange } from '../server/roles.mjs'
 import { todayInManagua } from '../server/notes.mjs'
 import { canChangeUserRole } from '../src/helpers/user-role-policy.js'
@@ -13,7 +13,9 @@ export async function listWeekStarting(db, start, now) {
     b.nombre || ' ' || b.apellido AS replacement_name FROM roles r
     JOIN users a ON a.id = r.assigned_user LEFT JOIN users b ON b.id = r.replace_user
     WHERE r.date BETWEEN ? AND ? ORDER BY r.date, r.id`).all(start, end)
-  return { start, end, roles, lock: start === weekRange(0, now).start ? await weekLock(db, start, now) : await db.prepare('SELECT * FROM week_locks WHERE week_start = ?').get(start) || null }
+  const participants = await db.prepare("SELECT id FROM users WHERE activo = 1 AND rol_usuario IN ('usuario', 'admin')").all()
+  const assignments = await db.prepare('SELECT assigned_user, date FROM roles ORDER BY date').all()
+  return { start, end, roles, monthlyCoverage: monthlyCoverage(participants, assignments, now), lock: start === weekRange(0, now).start ? await weekLock(db, start, now) : await db.prepare('SELECT * FROM week_locks WHERE week_start = ?').get(start) || null }
 }
 export const listWeek = (db, offset, now) => listWeekStarting(db, weekRange(offset, now).start, now)
 export async function ensureCurrentWeek(db, now) {
@@ -23,11 +25,11 @@ export async function ensureCurrentWeek(db, now) {
   const users = await db.prepare("SELECT id FROM users WHERE activo = 1 AND rol_usuario IN ('usuario', 'admin')").all()
   const eligible = new Set(users.map(user => user.id))
   let existing = await db.prepare('SELECT assigned_user, replace_user, rol_switched, date, manually_assigned FROM roles WHERE date BETWEEN ? AND ? ORDER BY date').all(range.start, range.end)
-  const previousUser = (await db.prepare('SELECT assigned_user FROM roles WHERE date = ?').get(addDays(range.start, -1)))?.assigned_user
+  const history = await db.prepare('SELECT assigned_user, date FROM roles WHERE date < ? OR date > ? ORDER BY date').all(range.start, range.end)
   const assigned = new Set(existing.map(role => role.assigned_user))
   const missing = existing.length === 7 && users.length <= 7 && users.some(user => !assigned.has(user.id))
-  const invalid = !existing.some(role => role.manually_assigned) && (users.length < 2 || missing || existing.some((role, index) => !eligible.has(role.assigned_user)
-    || (role.rol_switched && !eligible.has(role.replace_user)) || role.assigned_user === (index ? existing[index - 1].assigned_user : previousUser)))
+  const invalid = !existing.some(role => role.manually_assigned) && (users.length < minimumWeeklyParticipants || missing || hasAssignmentViolation(existing, history.filter(role => role.date < range.start), users.length) || existing.some(role => !eligible.has(role.assigned_user)
+    || (role.rol_switched && !eligible.has(role.replace_user))))
   const writes = []
   if (!lock && existing.length && invalid) {
     writes.push(['DELETE FROM roles WHERE date BETWEEN ? AND ?', [range.start, range.end]])
@@ -37,20 +39,13 @@ export async function ensureCurrentWeek(db, now) {
     existing = []
   }
   if (!existing.length) {
-    if (users.length >= 2) {
-      const turns = new Map(users.map(user => [user.id, 0]))
-      let last = previousUser
-      for (let day = 0; day < 7; day++) {
-        const candidates = users.filter(user => user.id !== last)
-        const minimum = Math.min(...candidates.map(user => turns.get(user.id)))
-        const pool = candidates.filter(user => turns.get(user.id) === minimum)
-        const user = pool[randomInt(pool.length)]
-        turns.set(user.id, turns.get(user.id) + 1)
+    const assignments = assignmentSchedule(users, range.start, history)
+    if (assignments) {
+      for (const [day, id] of assignments.entries()) {
         const date = addDays(range.start, day)
-        writes.push(['INSERT INTO roles (date, assigned_user) VALUES (?, ?)', [date, user.id]], ['UPDATE users SET ultimo_rol = ? WHERE id = ?', [date, user.id]])
-        last = user.id
+        writes.push(['INSERT INTO roles (date, assigned_user) VALUES (?, ?)', [date, id]], ['UPDATE users SET ultimo_rol = ? WHERE id = ?', [date, id]])
       }
-    } else generationBlocked = 'INSUFFICIENT_ACTIVE_USERS'
+    } else generationBlocked = users.length < minimumWeeklyParticipants ? 'INSUFFICIENT_ACTIVE_USERS' : 'ASSIGNMENT_GAP_UNSATISFIABLE'
   }
   await db.atomic(writes)
   return { ...await listWeek(db, 0, now), generationBlocked }
@@ -216,8 +211,8 @@ export async function reorganizeWeek(db, actorId, now) {
   const range = weekRange(0, now)
   const existing = (await listWeek(db, 0, now)).roles
   const users = await db.prepare("SELECT id FROM users WHERE activo = 1 AND rol_usuario IN ('usuario', 'admin')").all()
-  const previousUser = (await db.prepare('SELECT assigned_user FROM roles WHERE date = ?').get(addDays(range.start, -1)))?.assigned_user
-  const assignments = reorganizedUsers(users, previousUser, existing)
+  const history = await db.prepare('SELECT assigned_user, date FROM roles WHERE date < ? OR date > ? ORDER BY date').all(range.start, range.end)
+  const assignments = reorganizedUsers(users, range.start, history, existing)
   await db.atomic(reorganizationWrites(range, existing, assignments))
   return listWeek(db, 0, now)
 }

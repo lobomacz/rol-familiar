@@ -7,6 +7,7 @@ const usersSchema = name => `CREATE TABLE ${name} (
   username TEXT NOT NULL UNIQUE COLLATE NOCASE,
   password_hash TEXT NOT NULL,
   password_reset_at TEXT,
+  last_login_at TEXT,
   nombre TEXT NOT NULL CHECK(length(trim(nombre)) BETWEEN 1 AND 100),
   apellido TEXT NOT NULL CHECK(length(trim(apellido)) BETWEEN 1 AND 100),
   ultimo_rol TEXT CHECK(ultimo_rol IS NULL OR (date(ultimo_rol, '+0 days') IS NOT NULL AND date(ultimo_rol, '+0 days') = ultimo_rol)),
@@ -37,6 +38,8 @@ export function openDatabase() {
   }
   if (!db.prepare('PRAGMA table_info(users)').all().some(column => column.name === 'password_reset_at'))
     db.exec('ALTER TABLE users ADD COLUMN password_reset_at TEXT')
+  if (!db.prepare('PRAGMA table_info(users)').all().some(column => column.name === 'last_login_at'))
+    db.exec('ALTER TABLE users ADD COLUMN last_login_at TEXT')
   db.exec(`PRAGMA foreign_keys = ON;
     CREATE TABLE IF NOT EXISTS members (id INTEGER PRIMARY KEY, name TEXT NOT NULL CHECK(length(name) BETWEEN 1 AND 100));
     CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, expires_at INTEGER NOT NULL);

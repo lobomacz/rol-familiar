@@ -2,10 +2,26 @@
 import { computed, onMounted, ref } from 'vue'
 import { canChangeUserRole } from '../helpers/user-role-policy.js'
 import { userDisplayName } from '../helpers/user-display.js'
+import { formatLastLogin } from '../helpers/login-display.js'
 const props = defineProps({ user: { type: Object, required: true }, initialTab: { type: String, default: 'weeks' } })
 const emit = defineEmits(['unauthorized', 'new-user', 'open-week'])
 const canManage = computed(() => ['admin', 'superadmin'].includes(props.user.rol_usuario))
 const tab = ref(props.initialTab), roles = ref([]), users = ref([]), loading = ref(true), error = ref(''), notice = ref('')
+const statusFilter = ref('all'), roleFilter = ref('all'), refreshingUsers = ref(false)
+const statusOptions = [
+  { title: 'Todos los estados', value: 'all' },
+  { title: 'Activos', value: 'active' },
+  { title: 'Inactivos', value: 'inactive' },
+]
+const roleOptions = [
+  { title: 'Todos los roles', value: 'all' },
+  { title: 'Usuario', value: 'usuario' },
+  { title: 'Admin', value: 'admin' },
+]
+const listedUsers = computed(() => users.value.filter(person => person.rol_usuario !== 'superadmin'))
+const filteredUsers = computed(() => listedUsers.value.filter(person =>
+  (statusFilter.value === 'all' || Boolean(person.activo) === (statusFilter.value === 'active'))
+  && (roleFilter.value === 'all' || person.rol_usuario === roleFilter.value)))
 const resetting = ref(new Set())
 const saving = ref(new Set()), dialog = ref(false)
 const passwordResetTarget = ref(null), deactivationTarget = ref(null)
@@ -75,6 +91,14 @@ async function load() {
   } catch (err) { error.value = err.message }
   finally { loading.value = false }
 }
+async function clearUserFilters() {
+  if (!canManage.value || loading.value || refreshingUsers.value || saving.value.size || resetting.value.size) return
+  statusFilter.value = 'all'; roleFilter.value = 'all'
+  refreshingUsers.value = true; error.value = ''; notice.value = ''
+  try { users.value = (await request('/api/users')).users }
+  catch (err) { error.value = err.message }
+  finally { refreshingUsers.value = false }
+}
 async function setUserRole(person, role) {
   if (!canChangeUserRole(props.user, person) || saving.value.has(person.id) || resetting.value.has(person.id) || role === person.rol_usuario) return
   saving.value.add(person.id); error.value = ''; notice.value = ''
@@ -90,6 +114,7 @@ async function setActive(user, active) {
   try {
     const result = await request(`/api/users/${user.id}/active`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ activo: active }) })
     user.activo = result.activo
+    if (!result.activo) user.logged_in = false
     notice.value = `${user.nombre}: ${active ? 'activo' : 'inactivo'}`
     if (user.id === props.user.id && !active) emit('unauthorized')
     return true
@@ -102,6 +127,7 @@ async function resetPassword(user) {
   try {
     const result = await request(`/api/users/${user.id}/reset-password`, { method: 'POST' })
     user.password_reset_at = result.password_reset_at
+    user.logged_in = false
     notice.value = `Contraseña de ${user.nombre} restablecida a su nombre seguido del apellido, en minúsculas y sin espacios al inicio o final de cada campo. Deberá cambiarla al iniciar sesión.`
     if (user.id === props.user.id) emit('unauthorized')
     return true
@@ -124,7 +150,7 @@ onMounted(load)
       <div><p class="text-overline text-primary">Organización familiar</p><h1 id="explore-title" class="text-h5 font-weight-bold">Explorar</h1></div>
     </div>
     <v-tabs v-if="canManage" v-model="tab" grow color="primary" class="explore-tabs" aria-label="Contenido de Explorar">
-      <v-tab value="weeks">Semanas</v-tab><v-tab value="users">Usuarios</v-tab>
+      <v-tab value="weeks">Semanas</v-tab><v-tab value="users">Usuarios&nbsp;&nbsp;<v-chip color="primary" variant="tonal" aria-live="polite" aria-atomic="true">{{ filteredUsers.length }}</v-chip></v-tab>
     </v-tabs>
     <v-alert v-if="error" type="error" variant="tonal" role="alert">{{ error }} <v-btn variant="text" @click="load">Reintentar</v-btn></v-alert>
     <v-alert v-if="notice" type="success" variant="tonal" role="status">{{ notice }}</v-alert>
@@ -147,18 +173,28 @@ onMounted(load)
         <p class="text-body-2 text-medium-emphasis">Administra quién puede iniciar sesión y recibir nuevas asignaciones.</p>
         <v-btn icon="mdi-plus" color="primary" variant="tonal" aria-label="Agregar nuevo usuario" title="Agregar nuevo usuario" @click="emit('new-user')" />
       </div>
-      <v-list v-if="users.length" class="user-list" bg-color="transparent" aria-label="Usuarios registrados">
-        <v-list-item v-for="person in users" :key="person.id" class="user-item" rounded="lg">
-          <v-list-item-title class="wrap-text font-weight-bold">{{ userDisplayName(person) }}</v-list-item-title>
+      <div class="user-filters">
+        <v-select v-model="statusFilter" :items="statusOptions" label="Filtrar por estado" density="compact" hide-details :disabled="refreshingUsers" />
+        <v-select v-model="roleFilter" :items="roleOptions" label="Filtrar por rol" density="compact" hide-details :disabled="refreshingUsers" />
+        <v-btn class="clear-user-filters" color="primary" variant="text" :loading="refreshingUsers" :disabled="refreshingUsers || saving.size > 0 || resetting.size > 0" @click="clearUserFilters">Limpiar filtros y actualizar</v-btn>
+      </div>
+      <v-list v-if="filteredUsers.length" class="user-list" bg-color="transparent" aria-label="Usuarios registrados" :aria-busy="refreshingUsers">
+        <v-list-item v-for="person in filteredUsers" :key="person.id" class="user-item" rounded="lg">
+          <v-list-item-title class="wrap-text font-weight-bold">
+            <v-badge :model-value="user.rol_usuario === 'superadmin' && Boolean(person.logged_in)" dot location="top right" label="Sesión iniciada" class="session-name">
+              <span>{{ userDisplayName(person) }}</span>
+            </v-badge>
+          </v-list-item-title>
           <p class="text-caption text-medium-emphasis">{{ person.username }} · {{ person.rol_usuario }}</p>
           <v-select v-if="canChangeUserRole(user, person)" :model-value="person.rol_usuario" :items="['usuario', 'admin']" :aria-label="`Rol de usuario de ${userDisplayName(person)}`" label="Rol de usuario" density="compact" class="mt-3" hide-details :loading="saving.has(person.id)" :disabled="saving.has(person.id) || resetting.has(person.id)" @update:model-value="setUserRole(person, $event)" />
           <p class="text-body-2 mt-2">Último turno: {{ person.ultimo_rol ? formatDate(person.ultimo_rol) : 'Sin asignaciones' }}</p>
+          <p v-if="user.rol_usuario === 'superadmin'" class="text-body-2 mt-2">Último inicio de sesión: {{ formatLastLogin(person.last_login_at) }} <span v-if="person.last_login_at">(Managua)</span></p>
           <v-chip v-if="person.password_reset_at" size="small" color="warning" variant="tonal" class="mt-2">Cambio de contraseña pendiente</v-chip>
           <div class="mt-3"><v-btn v-if="canManage" size="small" color="primary" variant="tonal" :aria-label="`Restablecer contraseña de ${userDisplayName(person)}`" :loading="resetting.has(person.id)" :disabled="saving.has(person.id)" @click="askPasswordReset(person)">Restablecer contraseña</v-btn></div>
           <v-switch v-if="user.rol_usuario === 'superadmin'" :model-value="Boolean(person.activo)" :label="person.activo ? 'Activo' : 'Inactivo'" :aria-label="`Estado activo de ${userDisplayName(person)}`" :loading="saving.has(person.id)" :disabled="saving.has(person.id) || resetting.has(person.id)" color="primary" hide-details inset @update:model-value="requestActiveChange(person, $event)" />
         </v-list-item>
       </v-list>
-      <v-sheet v-else border rounded="xl" class="pa-8 text-center">No hay usuarios registrados para mostrar.</v-sheet>
+      <v-sheet v-else border rounded="xl" class="pa-8 text-center">{{ listedUsers.length ? 'No hay usuarios que coincidan con los filtros seleccionados.' : 'No hay usuarios registrados para mostrar.' }}</v-sheet>
     </template>
     <v-dialog v-model="resetConfirmation" max-width="460" :persistent="resetting.size > 0" aria-labelledby="reset-confirm-title">
       <v-card rounded="xl">
@@ -215,7 +251,12 @@ onMounted(load)
 .explore-tabs { flex: 0 0 auto; background: #edf3f0; border-radius: 12px; }
 .explore-tabs :deep(.v-tab) { text-transform: none; letter-spacing: 0; }
 .wrap-text { white-space: normal; overflow-wrap: anywhere; line-clamp: unset; -webkit-line-clamp: unset; }
+.clear-user-filters { grid-column: 1 / -1; justify-self: end; }
+.user-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 599px) { .user-filters { grid-template-columns: minmax(0, 1fr); } }
 .user-list { flex: 0 0 auto; align-content: start; display: grid; gap: 12px; padding: 0; overflow: visible; }
+.session-name { max-width: 100%; padding-right: 12px; }
+.session-name :deep(.v-badge__badge) { background: transparent !important; border: 2px solid #a5d6a7; box-shadow: none; }
 .user-item { padding: 16px; border: 1px solid #e4ebe7; background: white; }
 .week-list { flex: 0 0 auto; display: grid; gap: 12px; padding: 0; overflow: visible; }
 .week-item { border: 1px solid #e4ebe7; padding: 16px; background: white; }
