@@ -22,12 +22,18 @@ test('Pages API supports authentication, administration, weeks, swaps and append
     assert.equal(bad.error, 'Sus datos de acceso no son correctos!')
     const login = async (username, secret) => {
       const response = await call('/auth/login', 'POST', { username, password: secret })
-      await json(response)
+      const profile = (await json(response)).user
+      assert.ok(Number.isFinite(Date.parse(profile.last_login_at)))
+      assert.equal((await db.prepare('SELECT last_login_at FROM users WHERE id = ?').bind(profile.id).first()).last_login_at, profile.last_login_at)
       assert.match(response.headers.get('set-cookie'), /HttpOnly; SameSite=Strict/)
       assert.match(response.headers.get('set-cookie'), /Secure/)
       return response.headers.get('set-cookie').split(';')[0]
     }
     const admin = await login('admin', password)
+    const lastLogin = (await db.prepare('SELECT last_login_at FROM users WHERE id = 1').first()).last_login_at
+    assert.equal((await call('/auth/login', 'POST', { username: 'admin', password: 'wrong' })).status, 401)
+    assert.equal((await db.prepare('SELECT last_login_at FROM users WHERE id = 1').first()).last_login_at, lastLogin)
+    assert.equal((await json(await call('/auth/me', 'GET', undefined, admin))).user.last_login_at, lastLogin)
     assert.equal((await json(await call('/auth/me', 'GET', undefined, admin))).user.rol_usuario, 'superadmin')
     assert.equal((await call('/users', 'POST', {}, admin, { Origin: 'https://evil.example' })).status, 403)
     assert.equal((await call('/not-a-route', 'GET', undefined, admin)).status, 404)
@@ -35,15 +41,27 @@ test('Pages API supports authentication, administration, weeks, swaps and append
     const a = await create('ana', 'Ana', 'Uno')
     const b = await create('bea', 'Bea', 'Dos')
     const c = await create('carlos', 'Carlos', 'Tres', 'admin')
+    for (let i = 0; i < 4; i++) await create(`extra${i}`, `Extra${i}`, 'Test')
     const temporary = await login('ana', 'anauno')
     assert.equal((await call('/roles/ensure-current', 'POST', undefined, temporary)).status, 403)
     const newPassword = 'StrongPass1!'
     await json(await call('/auth/password', 'POST', { currentPassword: 'anauno', newPassword, confirmPassword: newPassword }, temporary))
     const ana = await login('ana', newPassword)
+    await db.prepare('INSERT INTO sessions(token_hash, user_id, expires_at) VALUES (?, ?, ?)').bind('expired-test-session', b.id, Date.now() - 1000).run()
+    const presence = (await json(await call('/users', 'GET', undefined, admin))).users
+    assert.equal(presence.find(user => user.id === a.id).logged_in, 1)
+    assert.ok(Number.isFinite(Date.parse(presence.find(user => user.id === a.id).last_login_at)))
+    assert.equal(presence.find(user => user.id === b.id).last_login_at, null)
+    assert.equal(presence.find(user => user.id === b.id).logged_in, 0)
+    const carlos = await login('carlos', 'carlostres')
+    await json(await call('/auth/password', 'POST', { currentPassword: 'carlostres', newPassword, confirmPassword: newPassword }, carlos))
+    const adminView = (await json(await call('/users', 'GET', undefined, carlos))).users
+    assert.ok(adminView.every(user => !Object.hasOwn(user, 'logged_in') && !Object.hasOwn(user, 'last_login_at')))
+
     assert.equal((await call('/users', 'GET', undefined, ana)).status, 403)
     const weeks = await Promise.all(Array.from({ length: 3 }, () => call('/roles/ensure-current', 'POST', undefined, admin)))
     const data = await Promise.all(weeks.map(response => json(response)))
-    for (const week of data) { assert.equal(week.roles.length, 7); assert.deepEqual(week.roles, data[0].roles) }
+    for (const week of data) { assert.equal(week.roles.length, 7); assert.equal(new Set(week.roles.map(r => r.assigned_user)).size, 7); assert.deepEqual(week.roles, data[0].roles) }
     const roles = data[0].roles
     assert.equal(roles[0].date, weekRange().start)
     assert.equal(new Date(`${roles[6].date}T12:00:00Z`).getUTCDay(), 0)
@@ -62,7 +80,7 @@ test('Pages API supports authentication, administration, weeks, swaps and append
     await json(await call(`/notes/${note.id}/entries`, 'POST', { text: 'Segunda entrada' }, ana))
     const notes = await json(await call('/notes', 'GET', undefined, ana))
     assert.equal(notes.notes.find(row => row.id === note.id).entries.length, 2)
-    await json(await call(`/notes/${note.id}/complete`, 'POST', undefined, admin))
+    await json(await call(`/notes/${note.id}/complete`, 'POST', undefined, ana))
     assert.equal((await call(`/notes/${note.id}/entries`, 'POST', { text: 'No permitida' }, ana)).status, 409)
     await json(await call('/notes', 'POST', { date: own.date, text: 'Derivada', parent_id: note.id }, ana), 201)
     // The deployed Pages route must support the same reassignment flow as Node.
@@ -123,6 +141,7 @@ test('Pages API supports authentication, administration, weeks, swaps and append
     assert.equal((await call('/auth/login', 'POST', { username: 'bea', password: 'beados' })).status, 401)
     await json(await call(`/users/${a.id}/reset-password`, 'POST', undefined, admin))
     assert.equal((await call('/auth/me', 'GET', undefined, ana)).status, 401)
+    assert.equal((await json(await call('/users', 'GET', undefined, admin))).users.find(user => user.id === a.id).logged_in, 0)
     await json(await call('/auth/logout', 'POST', undefined, admin))
     assert.equal((await call('/auth/me', 'GET', undefined, admin)).status, 401)
     for (let index = 0; index < 11; index++) {

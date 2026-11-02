@@ -14,7 +14,7 @@ test('reorganization is superadmin-only, changes the week, preserves days and hi
   process.env.SQLITE_PATH = join(dir, 'test.sqlite')
   const db = openDatabase()
   try {
-    for (let id = 1; id <= 4; id++) db.prepare('INSERT INTO users(id, username, password_hash, nombre, apellido, rol_usuario) VALUES (?, ?, ?, ?, ?, ?)').run(id, `u${id}`, 'hash', `User${id}`, 'Test', id === 1 ? 'superadmin' : 'usuario')
+    for (let id = 1; id <= 8; id++) db.prepare('INSERT INTO users(id, username, password_hash, nombre, apellido, rol_usuario) VALUES (?, ?, ?, ?, ?, ?)').run(id, `u${id}`, 'hash', `User${id}`, 'Test', id === 1 ? 'superadmin' : 'usuario')
     db.exec("INSERT INTO roles(date, assigned_user) VALUES ('2026-10-25', 2), ('2026-11-02', 3)")
     ensureCurrentWeek(db, now)
     const source = listWeek(db, 0, now).roles[0]
@@ -27,7 +27,7 @@ test('reorganization is superadmin-only, changes the week, preserves days and hi
     assert.notDeepEqual(after.roles.map(role => role.assigned_user), before.roles.map(role => role.assigned_user))
     assert.deepEqual(after.roles.map(role => role.id), before.roles.map(role => role.id))
     for (let i = 0; i < 7; i++) {
-      assert.ok([2, 3, 4].includes(after.roles[i].assigned_user))
+      assert.ok([2, 3, 4, 5, 6, 7, 8].includes(after.roles[i].assigned_user))
       assert.notEqual(after.roles[i].assigned_user, i ? after.roles[i - 1].assigned_user : 2)
       assert.equal(after.roles[i].replace_user, null)
       assert.equal(after.roles[i].manually_assigned, 0)
@@ -41,7 +41,7 @@ test('reorganization is superadmin-only, changes the week, preserves days and hi
   }
 })
 test('reorganization reports when a different distribution is impossible', () => {
-  assert.throws(() => reorganizedUsers([{ id: 2 }], undefined, []), { status: 409 })
+  assert.throws(() => reorganizedUsers([{ id: 2 }], '2026-10-26', [], []), { status: 409 })
   const existing = [3, 2, 3, 2, 3, 2, 3].map(assigned_user => ({ assigned_user }))
-  assert.throws(() => reorganizedUsers([{ id: 2 }, { id: 3 }], 2, existing), { status: 409 })
+  assert.throws(() => reorganizedUsers([{ id: 2 }, { id: 3 }], '2026-10-26', [], existing), { status: 409 })
 })

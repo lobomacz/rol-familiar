@@ -20,7 +20,7 @@ function fixture() {
   process.env.SQLITE_PATH = join(directory, 'test.sqlite')
   const db = openDatabase()
   if (previous === undefined) delete process.env.SQLITE_PATH; else process.env.SQLITE_PATH = previous
-  for (const [id, role] of [[1, 'superadmin'], [2, 'admin'], [3, 'usuario'], [4, 'usuario']])
+  for (const [id, role] of [[1, 'superadmin'], [2, 'admin'], ...[3, 4, 5, 6, 7, 8].map(id => [id, 'usuario'])])
     db.prepare('INSERT INTO users(id, username, password_hash, nombre, apellido, rol_usuario) VALUES (?, ?, ?, ?, ?, ?)').run(id, `u${id}`, 'unused', `Name${id}`, 'Family', role)
   db.atomic = queries => {
     db.exec('BEGIN IMMEDIATE')
@@ -31,6 +31,137 @@ function fixture() {
 }
 const rejects = (action, status) => assert.rejects(async () => action(), { status })
 for (const [name, service] of [['SQLite', local], ['D1 service', cloud]]) {
+  test(`${name}: monthly rotation considers all active participants before repeating covered users`, async () => {
+    const f = fixture(), db = f.db
+    try {
+      for (let id = 9; id <= 15; id++) db.prepare("INSERT INTO users(id, username, password_hash, nombre, apellido, rol_usuario) VALUES (?, ?, 'unused', ?, 'Family', 'usuario')").run(id, `u${id}`, `Name${id}`)
+      // Four full weeks for fourteen people: everyone must get a turn before
+      // participants with a monthly turn receive their next one.
+      const covered = new Set()
+      for (let week = 0; week < 4; week++) {
+        const at = new Date(`2026-11-${String(2 + week * 7).padStart(2, '0')}T18:00:00Z`)
+        const result = await service.ensureCurrentWeek(db, at)
+        assert.equal(result.roles.length, 7)
+        assert.equal(new Set(result.roles.map(r => r.assigned_user)).size, 7)
+        if (week === 1) for (const role of result.roles) assert.equal(covered.has(role.assigned_user), false)
+        for (const role of result.roles) covered.add(role.assigned_user)
+        if (week === 1) {
+          assert.equal(covered.size, 14)
+          assert.deepEqual(result.monthlyCoverage.missingUserIds, [])
+        }
+      }
+      // A newly activated participant is included on the next generation.
+      db.prepare("INSERT INTO users(id, username, password_hash, nombre, apellido, rol_usuario) VALUES (16, 'u16', 'unused', 'New', 'Family', 'admin')").run()
+      const reorganized = await service.reorganizeWeek(db, 1, new Date('2026-11-23T18:00:00Z'))
+      assert.ok(reorganized.roles.some(role => role.assigned_user === 16))
+      assert.deepEqual(reorganized.monthlyCoverage.missingUserIds, [])
+    } finally { f.close() }
+  })
+  test(`${name}: automatic assignments leave two full days across weeks and reshuffling`, async () => {
+    const f = fixture(), db = f.db
+    try {
+      db.exec("INSERT INTO roles(date, assigned_user) VALUES ('2026-10-24', 3), ('2026-10-25', 4)")
+      const check = () => {
+        const last = new Map()
+        for (const role of db.prepare('SELECT date, assigned_user FROM roles ORDER BY date').all()) {
+          const date = Date.parse(role.date) / 86400000
+          if (last.has(role.assigned_user)) assert.ok(date - last.get(role.assigned_user) >= 3)
+          last.set(role.assigned_user, date)
+        }
+      }
+      const first = await service.ensureCurrentWeek(db, monday)
+      assert.equal(first.roles.length, 7); assert.equal(new Set(first.roles.map(r => r.assigned_user)).size, 7); check()
+      assert.notEqual(first.roles[0].assigned_user, 3)
+      assert.notEqual(first.roles[0].assigned_user, 4)
+      assert.notEqual(first.roles[1].assigned_user, 4)
+      // Add an eighth participant so a different valid shuffle is possible.
+      db.prepare("INSERT INTO users(id, username, password_hash, nombre, apellido, rol_usuario) VALUES (9, 'u9', 'unused', 'Nine', 'Family', 'usuario')").run()
+      await service.reorganizeWeek(db, 1, monday); check()
+      for (let week = 1; week <= 8; week++) {
+        const at = new Date(monday.getTime() + week * 7 * 86400000)
+        const generated = await service.ensureCurrentWeek(db, at)
+        assert.equal(generated.roles.length, 7)
+        assert.equal(new Set(generated.roles.map(r => r.assigned_user)).size, 7)
+        check()
+      }
+    } finally { f.close() }
+  })
+  test(`${name}: three to six participants can repeat with two full days between turns`, async () => {
+    for (let count = 3; count < 7; count++) {
+      const f = fixture(), db = f.db
+      try {
+        db.prepare('UPDATE users SET activo = 0 WHERE id > ?').run(count + 1)
+        const last = new Map()
+        for (let week = 0; week < 4; week++) {
+          const at = new Date(monday.getTime() + week * 7 * 86400000)
+          const result = await service.ensureCurrentWeek(db, at)
+          assert.equal(result.roles.length, 7)
+          assert.equal(result.generationBlocked, null)
+          assert.equal(new Set(result.roles.map(r => r.assigned_user)).size, count)
+          for (const role of result.roles) {
+            const date = Date.parse(role.date) / 86400000
+            if (last.has(role.assigned_user)) assert.ok(date - last.get(role.assigned_user) >= 3)
+            last.set(role.assigned_user, date)
+          }
+          assert.deepEqual((await service.ensureCurrentWeek(db, at)).roles, result.roles)
+        }
+      } finally { f.close() }
+    }
+  })
+  test(`${name}: reaching seven active participants removes automatic weekly repeats`, async () => {
+    const f = fixture(), db = f.db
+    try {
+      db.exec('UPDATE users SET activo = 0 WHERE id > 5')
+      const repeated = await service.ensureCurrentWeek(db, monday)
+      assert.equal(new Set(repeated.roles.map(r => r.assigned_user)).size, 4)
+      db.exec('UPDATE users SET activo = 1 WHERE id > 5')
+      const unique = await service.ensureCurrentWeek(db, monday)
+      assert.equal(unique.roles.length, 7)
+      assert.equal(new Set(unique.roles.map(r => r.assigned_user)).size, 7)
+    } finally { f.close() }
+  })
+  test(`${name}: reshuffling with fewer than seven participants permits spaced repeats`, async () => {
+    const f = fixture(), db = f.db
+    try {
+      db.exec('UPDATE users SET activo = 0 WHERE id > 5')
+      const original = await service.ensureCurrentWeek(db, monday)
+      const changed = await service.reorganizeWeek(db, 1, monday)
+      assert.notDeepEqual(changed.roles.map(r => r.assigned_user), original.roles.map(r => r.assigned_user))
+      assert.deepEqual(changed.roles.map(r => r.id), original.roles.map(r => r.id))
+      assert.equal(new Set(changed.roles.map(r => r.assigned_user)).size, 4)
+      const last = new Map()
+      for (const role of changed.roles) {
+        const date = Date.parse(role.date) / 86400000
+        if (last.has(role.assigned_user)) assert.ok(date - last.get(role.assigned_user) >= 3)
+        last.set(role.assigned_user, date)
+      }
+    } finally { f.close() }
+  })
+  test(`${name}: two participants cannot generate a partial or invalid week`, async () => {
+    const f = fixture(), db = f.db
+    try {
+      db.exec('UPDATE users SET activo = 0 WHERE id >= 4')
+      const result = await service.ensureCurrentWeek(db, monday)
+      assert.equal(result.generationBlocked, 'INSUFFICIENT_ACTIVE_USERS')
+      assert.deepEqual(result.roles, [])
+      await rejects(() => service.reorganizeWeek(db, 1, monday), 409)
+      assert.equal(db.prepare('SELECT count(*) AS n FROM roles').get().n, 0)
+    } finally { f.close() }
+  })
+  test(`${name}: admin and superadmin overrides can repeat adjacent days in open weeks and survive refresh`, async () => {
+    for (const actor of [1, 2]) {
+      const f = fixture(), db = f.db
+      try {
+        const week = await service.ensureCurrentWeek(db, monday)
+        const target = week.roles[0].assigned_user
+        await service.reassignDay(db, actor, week.roles[1].id, { assigned_user: target }, monday)
+        const saved = await service.ensureCurrentWeek(db, monday)
+        assert.equal(saved.roles[1].assigned_user, target)
+        assert.equal(saved.roles[1].manually_assigned, 1)
+        assert.deepEqual((await service.ensureCurrentWeek(db, monday)).roles, saved.roles)
+      } finally { f.close() }
+    }
+  })
   test(`${name}: manual locks record the actor, block reshuffling and admin edits, preserve superadmin edits and exchanges`, async () => {
     const f = fixture(), db = f.db
     try {

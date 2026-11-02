@@ -41,6 +41,8 @@ npm run cf:migrate:production
 npm run cf:migrate:preview
 ```
 
+Migration `0004_last_login.sql` adds the nullable `users.last_login_at` timestamp. Apply migrations to production and preview before deploying the login-tracking update. Existing accounts show no recorded login until their next successful login; failed logins do not change the value. SQLite adds this column automatically at startup. The profile shows the account's own timestamp, and Explore exposes it only to superadmins, formatted in `America/Managua`.
+
 Migration `0002_manual_assignments.sql` adds the flag that preserves superadmin assignment changes when the current week is refreshed. For existing deployments, run the migration commands above before deploying the updated Functions.
 
 The initial migration creates users, sessions, roles, notes, append-only note entries, members, indexes, revision guards and persisted authentication-attempt counters. Applying migrations does not create an account or copy the Docker database automatically.
@@ -58,7 +60,7 @@ npx wrangler d1 execute DB --remote --file /tmp/rol-familiar-admin.private.sql
 
 Run separately with a different generated file and `--env preview` for preview. The initial account has username `admin`, nombre `Superadmin` and rol_usuario `superadmin`. Sign in with the generated password and complete the mandatory password-change dialog. Admin initialization refuses duplicate IDs/usernames; it never resets an existing password. Do not add these private SQL files to Git.
 
-The superadmin account manages the application but does not participate in weekly assignments. Create at least **two active usuario/admin accounts** through the application to generate a week without consecutive assignments to the same person. Newly created accounts use the existing temporary-password policy and require a password change on first login.
+The superadmin account manages the application but does not participate in weekly assignments. Create at least **three active usuario/admin accounts** through the application to generate a week. Automatic generation and reorganization assign each person at most once per week when at least seven eligible users are active. With three to six eligible active users, weekly repeats are allowed and everyone receives at least one turn. Every automatic assignment still requires two full days between their previous assignment and their next one (Sunday â†’ Wednesday at the earliest). All eligible participants are considered: those without an assignment in the calendar month of the scheduled date take priority, followed by those with fewer monthly assignments, with random ties. Monthly counts reset at calendar boundaries, including weeks spanning two months. Manual assignment overrides by admins and superadmins on open weeks bypass both rules and survive refresh. The weekly response reports monthly coverage and the UI warns if remaining unassigned dates cannot cover all eligible users. Newly created accounts use the existing temporary-password policy and require a password change on first login.
 
 ### Move existing Docker/SQLite data
 
@@ -99,6 +101,8 @@ Connect the GitHub repository `lobomacz/rol-familiar` under **Workers & Pages â†
 | Application runtime secrets | None | None |
 
 The checked-in `.node-version` also pins Node's major version. Do not set `NODE_ENV=production` before dependency installation: the build needs Vite and Wrangler from devDependencies. Do not set `NPM_FLAGS=--omit=dev`.
+
+Icons use Vuetify's MDI set with the `@mdi/font` production dependency. Vite bundles the imported stylesheet and font files into `dist/assets`, so Pages serves them from the application's own origin. No icon CDN, additional binding, or environment variable is needed. Deploy both `package.json` and `package-lock.json` with the icon update so the Pages dependency installation includes the font package.
 
 **Complete environment-variable inventory:** `NODE_VERSION=24` is the only dashboard environment variable needed. There are no required `VITE_*`, `DATABASE_URL`, `SESSION_SECRET`, `SQLITE_PATH`, `API_PORT`, `COOKIE_SECURE`, `USER_PASSWORD`, or bootstrap-password variables in the Pages application. `DB` is a D1 binding, not an environment-variable string. Secure cookies are automatic on HTTPS. The API uses relative same-origin `/api` URLs for production, preview and custom domains.
 

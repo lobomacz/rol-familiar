@@ -16,8 +16,9 @@
       </v-toolbar>
 
       <div class="page-content">
+        <v-btn v-if="bottomNav === 'roles' && activeTab === 'actual' && !currentWeek.lock" class="refresh-button" icon="mdi-sync" color="primary" variant="tonal" aria-label="Actualizar asignaciones de la semana actual" title="Actualizar asignaciones" :loading="loadingRoles" :disabled="loadingRoles || savingSwap" @click="refreshCurrentWeek" />
       <section v-if="bottomNav === 'roles'" class="roles-panel" aria-labelledby="roles-heading">
-        <div class="roles-heading">
+        <div class="roles-heading" :class="{ 'roles-heading-with-refresh': activeTab === 'actual' && !currentWeek.lock }">
           <div>
             <p class="text-overline text-primary">Organización familiar</p>
             <h1 id="roles-heading" class="text-h5 font-weight-bold">{{ rolesHeading }}</h1>
@@ -26,9 +27,11 @@
           <v-btn v-if="activeTab === 'actual' && canCreateUsers" color="primary" variant="tonal" :disabled="loadingRoles || savingSwap || !!currentWeek.lock" @click="reorganizeDialog = true">Reorganizar</v-btn>
           <v-btn v-if="activeTab === 'actual' && canCreateUsers && !currentWeek.lock" color="primary" :disabled="loadingRoles || savingSwap" @click="lockDialog = true">Cerrar semana</v-btn>
           <p v-if="activeTab === 'actual' && currentWeek.lock" class="text-body-2" role="status">Semana cerrada · {{ currentWeek.lock.author }} · {{ new Date(currentWeek.lock.locked_at).toLocaleString('es-NI', { timeZone: 'America/Managua' }) }}</p>
-          <v-btn v-if="activeTab === 'actual' && !currentWeek.lock" icon="mdi-refresh" color="primary" variant="tonal" aria-label="Actualizar asignaciones de la semana actual" title="Actualizar asignaciones" :loading="loadingRoles" :disabled="loadingRoles || savingSwap" @click="refreshCurrentWeek" />
           <v-chip color="primary" variant="tonal" size="small">{{ selectedRoles.length }} asignaciones</v-chip>
         </div>
+        <v-alert v-if="activeTab === 'actual' && currentWeek.monthlyCoverage?.capacityExceeded" type="warning" variant="tonal" role="status">
+          {{ currentWeek.monthlyCoverage.missingUserIds.length }} participantes aún no tienen asignación en {{ currentWeek.monthlyCoverage.month }} y quedan {{ currentWeek.monthlyCoverage.remainingDates }} fechas disponibles. Revise la cobertura mensual y las asignaciones manuales.
+        </v-alert>
         <v-tabs :model-value="activeTab" :disabled="loadingRoles || savingSwap" @update:model-value="changeWeekTab" color="primary" grow hide-slider height="56" class="week-tabs" aria-label="Seleccionar semana">
           <v-tab value="anterior" selected-class="week-tab-active">{{ previousTabLabel }}</v-tab>
           <v-tab value="actual" selected-class="week-tab-active">Semana actual</v-tab>
@@ -42,8 +45,8 @@
         </v-sheet>
         <v-sheet v-else-if="!selectedRoles.length && !error" class="state-panel" rounded="xl" border role="status">
           <v-avatar color="primary" variant="tonal" size="64"><v-icon icon="mdi-account" size="32" /></v-avatar>
-          <h2 class="text-subtitle-1 font-weight-bold mt-4">{{ activeTab === 'anterior' ? 'Semana anterior' : currentWeek.generationBlocked ? 'Se necesitan más participantes' : 'Una semana por organizar' }}</h2>
-          <p class="text-body-2 text-medium-emphasis mt-2">{{ activeTab === 'anterior' ? 'No se genero un rol para esta semana.' : currentWeek.generationBlocked === 'INSUFFICIENT_ACTIVE_USERS' ? 'Se necesitan al menos dos usuarios activos con rol usuario o admin para crear las asignaciones de la semana.' : 'No hay roles asignados para esta semana.' }}</p>
+          <h2 class="text-subtitle-1 font-weight-bold mt-4">{{ activeTab === 'anterior' ? 'Semana anterior' : currentWeek.generationBlocked ? 'No se pudo organizar la semana' : 'Una semana por organizar' }}</h2>
+          <p class="text-body-2 text-medium-emphasis mt-2">{{ activeTab === 'anterior' ? 'No se genero un rol para esta semana.' : currentWeek.generationBlocked === 'INSUFFICIENT_ACTIVE_USERS' ? 'Se necesitan al menos tres usuarios activos con rol usuario o admin para dejar dos días libres entre turnos. Con menos de siete participantes se permiten varios turnos por usuario.' : currentWeek.generationBlocked === 'ASSIGNMENT_GAP_UNSATISFIABLE' ? 'Las asignaciones anteriores impiden dejar dos días libres entre turnos. Agregue participantes o revise las asignaciones manuales anteriores.' : 'No hay roles asignados para esta semana.' }}</p>
         </v-sheet>
         <v-list v-else-if="!loadingRoles && selectedRoles.length" :key="activeTab" class="role-list" bg-color="transparent" aria-label="Asignaciones de la semana">
           <v-list-item v-for="item in selectedRoles" :key="item.id" class="role-item" rounded="lg" :class="{ 'role-item-switched': item.rol_switched }">
@@ -55,8 +58,8 @@
             <v-list-item-title class="role-date">{{ item.rol_switched ? item.replacement_name : item.assigned_name }}</v-list-item-title>
             <v-list-item-subtitle v-if="item.rol_switched" class="role-person">En sustitucion de {{ item.assigned_name }}</v-list-item-subtitle>
             <template #append>
-              <v-btn v-if="activeTab === 'actual' && user.rol_usuario === 'superadmin'" icon="mdi-account-edit" variant="text" color="primary" :aria-label="`Cambiar usuario asignado al ${item.date}`" :disabled="savingSwap" @click="openAssignment(item)" />
-              <v-btn icon variant="text" :color="dayNoteCount(item.date) ? 'blue' : undefined" :disabled="!dayNoteCount(item.date) || savingSwap" :aria-label="`Notas del ${item.date}: ${dayNoteCount(item.date)}`" @click="openDayNotes(item)">
+              <v-btn v-if="activeTab === 'actual' && canCreateUsers && (!currentWeek.lock || user.rol_usuario === 'superadmin')" icon="mdi-account-edit" variant="text" color="primary" :aria-label="`Cambiar usuario asignado al ${item.date}`" :disabled="savingSwap" @click="openAssignment(item)" />
+              <v-btn icon variant="text" :color="dayNoteCount(item.date) ? 'blue' : undefined" :disabled="!canOpenDayNotes(item) || savingSwap" :aria-label="`Notas del ${item.date}: ${dayNoteCount(item.date)}`" @click="openDayNotes(item)">
                 <v-badge :model-value="dayNoteCount(item.date) > 0" color="red" location="top left" dot floating><v-icon icon="mdi-square-edit-outline" :color="dayNoteCount(item.date) > 0 ? 'blue' : undefined" /></v-badge>
               </v-btn>
               <v-switch class="replacement-switch ml-3" label="Cambiar" :model-value="Boolean(item.rol_switched)" :disabled="!canSwitch(item) || savingSwap || loadingRoles" :loading="savingRoleId === item.id" color="primary" inset hide-details density="compact" :aria-label="`Sustituir la asignación del ${item.date} de ${item.assigned_name}`" @update:model-value="toggleReplacement(item, $event)" />
@@ -71,6 +74,7 @@
         <v-card-text>
           <p>{{ userDisplayName(user) }}</p>
           <p>Rol: {{ user.rol_usuario }}</p>
+          <p>Último inicio de sesión: {{ formatLastLogin(user.last_login_at) }} <span v-if="user.last_login_at">(Managua)</span></p>
         </v-card-text>
         <v-alert v-if="passwordSuccess" type="success" variant="tonal" role="status" class="mb-4">Contraseña actualizada correctamente.</v-alert>
         <div class="profile-actions">
@@ -98,7 +102,7 @@
         <v-card-actions><v-btn :disabled="savingSwap" @click="reorganizeDialog = false">Cancelar</v-btn><v-spacer /><v-btn color="primary" :loading="savingSwap" @click="reorganize">Reorganizar</v-btn></v-card-actions>
       </v-card>
     </v-dialog>
-    <AssignmentDialog v-if="user.rol_usuario === 'superadmin'" v-model="assignmentDialog" :role="assignmentRole" @saved="assignmentSaved" @unauthorized="emit('unauthorized')" />
+    <AssignmentDialog v-if="canCreateUsers" v-model="assignmentDialog" :role="assignmentRole" @saved="assignmentSaved" @unauthorized="emit('unauthorized')" />
     <v-dialog v-model="replacementDialog" max-width="480" :persistent="savingSwap" scrollable aria-labelledby="replacement-title" @after-leave="resetReplacement">
       <v-card rounded="xl">
         <v-card-title id="replacement-title">Seleccionar sustituto</v-card-title>
@@ -135,6 +139,7 @@ import AssignmentDialog from '../components/AssignmentDialog.vue'
 import Explore from './Explore.vue'
 import { useReplacementValidation } from '../helpers/replacement-validation.js'
 import { userDisplayName } from '../helpers/user-display.js'
+import { formatLastLogin } from '../helpers/login-display.js'
 import PasswordChangeDialog from '../components/PasswordChangeDialog.vue'
 const props = defineProps({ user: { type: Object, required: true }, loggingOut: Boolean, initialTab: String, initialExploreTab: String })
 const emit = defineEmits(['logout', 'new-user', 'unauthorized'])
@@ -144,7 +149,10 @@ const assignmentDialog = ref(false), assignmentRole = ref(null)
 function openAssignment(item) { assignmentRole.value = item; assignmentDialog.value = true }
 function assignmentSaved(week) { currentWeek.value = week; notesRevision.value++; loadPendingNotes() }
 const dayNotesDialog = ref(false), notesDate = ref('')
-function openDayNotes(item) { notesDate.value = item.date; dayNotesDialog.value = true }
+function openDayNotes(item) {
+  if (!canOpenDayNotes(item) || savingSwap.value) return
+  notesDate.value = item.date; dayNotesDialog.value = true
+}
 const pendingCount = ref(0), pendingOnly = ref(false), dayNotes = ref([])
 const notesByDate = computed(() => {
   const counts = new Map()
@@ -152,6 +160,8 @@ const notesByDate = computed(() => {
   return counts
 })
 const dayNoteCount = date => notesByDate.value.get(date) || 0
+const canOpenDayNotes = item => dayNoteCount(item.date) > 0 || (canCreateUsers.value && activeTab.value === 'actual'
+  && item.date >= currentWeek.value.start && item.date <= currentWeek.value.end)
 let notificationTimer
 const pendingDialog = ref(false), notesRevision = ref(0)
 function openPendingNotes() { if (pendingCount.value > 0 && canCreateUsers.value) pendingDialog.value = true }
@@ -307,7 +317,9 @@ onMounted(loadRoles)
 .main-layout { padding: clamp(0px, 2vh, 24px) !important; padding: clamp(0px, 2dvh, 24px) !important; }
 .main-shell { max-width: 960px; margin: auto; height: calc(100vh - clamp(0px, 2vh, 24px) * 2); height: calc(100dvh - clamp(0px, 2dvh, 24px) * 2); display: flex; flex-direction: column; overflow: hidden; background: rgb(var(--v-theme-surface)); border: 1px solid rgba(var(--v-border-color), .1); border-radius: 24px; box-shadow: 0 12px 40px #173d3010; }
 .main-shell > .v-toolbar { flex: 0 0 auto; padding-top: env(safe-area-inset-top); }
-.page-content { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; }
+.page-content { position: relative; flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; }
+.refresh-button { position: absolute; top: 16px; right: 16px; }
+.roles-heading-with-refresh { padding-right: 56px; }
 .roles-panel { min-height: 100%; display: flex; flex-direction: column; gap: 20px; padding: clamp(16px, 3vw, 32px); }
 .roles-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .month-label::first-letter { text-transform: uppercase; }
